@@ -1,18 +1,20 @@
 const std = @import("std");
+const Scanner = @import("scanner.zig");
+const Allocator = std.mem.Allocator;
 
-pub fn runFile(io: std.Io, filename: []const u8) std.Io.Dir.ReadFileError!void {
+pub fn runFile(gpa: Allocator, io: std.Io, filename: []const u8) !void {
     var buffer: [1024]u8 = undefined;
     const file = try std.Io.Dir.cwd().readFile(io, filename, &buffer);
-    run(file);
+    try run(gpa, file);
 }
 
-pub fn runPrompt(stdout_writer: *std.Io.Writer, stdin_reader: *std.Io.Reader) !void {
+pub fn runPrompt(gpa: Allocator, stdout_writer: *std.Io.Writer, stdin_reader: *std.Io.Reader) !void {
     while (true) {
         try stdout_writer.print("> ", .{});
         try stdout_writer.flush();
         const line = try stdin_reader.takeDelimiter('\n');
         if (line) |line_value| {
-            run(line_value);
+            try run(gpa, line_value);
         } else {
             try stdout_writer.print("\n", .{});
             try stdout_writer.flush();
@@ -21,6 +23,9 @@ pub fn runPrompt(stdout_writer: *std.Io.Writer, stdin_reader: *std.Io.Reader) !v
     }
 }
 
-pub fn run(code: []const u8) void {
-    std.debug.print("{s}\n", .{code});
+pub fn run(gpa: Allocator, code: []const u8) !void {
+    var scanner = try Scanner.Scanner.init(gpa, code);
+    defer scanner.deinit(gpa);
+    try scanner.scanTokens(gpa);
+    scanner.printTokens();
 }
