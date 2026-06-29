@@ -1,6 +1,6 @@
 const std = @import("std");
 const log = std.log.scoped(.zlox);
-const lox = @import("lox.zig");
+const Lox = @import("Lox.zig");
 
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
@@ -22,11 +22,15 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(64);
     } else if (args.vector.len == 2) {
         const filename: []const u8 = std.mem.span(args.vector[1]);
-        try lox.runFile(gpa, io, filename);
+        try Lox.runFile(gpa, io, filename);
     } else {
         var stdin_buffer: [1024]u8 = undefined;
         var stdin_file_reader = std.Io.File.stdin().reader(io, &stdin_buffer);
         const stdin_reader = &stdin_file_reader.interface;
-        try lox.runPrompt(gpa, stdout_writer, stdin_reader);
+        try Lox.runPrompt(gpa, stdout_writer, stdin_reader);
     }
+}
+
+test {
+    std.testing.refAllDecls(@This());
 }
