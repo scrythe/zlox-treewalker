@@ -5,6 +5,7 @@ const Scanner = @This();
 current: u32 = 0,
 code: []const u8,
 tokens: std.ArrayList(TokenType),
+line: u32 = 0,
 
 const TokenType = enum {
     // Single-character tokens.
@@ -74,7 +75,9 @@ pub fn deinit(self: *Scanner, gpa: Allocator) void {
 
 pub fn scanTokens(self: *Scanner, gpa: Allocator) !void {
     while (!self.isAtEnd()) {
-        switch (self.advance()) {
+        const char = self.code[self.current];
+        self.current += 1;
+        switch (char) {
             '(' => try self.addToken(gpa, TokenType.LeftParen),
             ')' => try self.addToken(gpa, TokenType.RightParen),
             '{' => try self.addToken(gpa, TokenType.LeftBrace),
@@ -102,7 +105,49 @@ pub fn scanTokens(self: *Scanner, gpa: Allocator) !void {
                 const tokenType = if (self.matchChar('=')) TokenType.GreaterEqual else TokenType.Greater;
                 try self.addToken(gpa, tokenType);
             },
-            else => undefined,
+            '/' => {
+                if (self.matchChar('/')) {
+                    while (!self.isAtEnd() and self.code[self.current] != '\n') {
+                        self.current += 1;
+                    }
+                } else {
+                    try self.addToken(gpa, TokenType.Slash);
+                }
+            },
+            ' ', '\r', '\t' => undefined,
+            '\n' => self.line += 1,
+            '"' => {
+                while (!self.isAtEnd() and self.code[self.current] != '"') {
+                    if (self.code[self.current] == '\n') self.line += 1;
+                    self.current += 1;
+                }
+                // consume "
+                self.current += 1;
+                try self.addToken(gpa, TokenType.String);
+            },
+            '0'...'9' => {
+                // const start = self.current - 1;
+                while (std.ascii.isDigit(self.code[self.current])) {
+                    self.current += 1;
+                }
+                if (self.code[self.current] == '.' and std.ascii.isDigit(self.code[self.current + 1])) {
+                    self.current += 1;
+                    while (std.ascii.isDigit(self.code[self.current])) {
+                        self.current += 1;
+                    }
+                }
+                try self.addToken(gpa, TokenType.Number);
+                // std.debug.print("Number: {s}\n", .{self.code[start..self.current]});
+            },
+            '_', 'a'...'z', 'A'...'Z' => {
+                // const start = self.current - 1;
+                while (std.ascii.isAlphanumeric(self.code[self.current])) {
+                    self.current += 1;
+                }
+                // std.debug.print("Number: {s}\n", .{self.code[start..self.current]});
+                try self.addToken(gpa, TokenType.Identifier);
+            },
+            else => std.debug.print("Undefined: {u}\n", .{char}),
         }
     }
 }
@@ -119,12 +164,6 @@ fn isAtEnd(self: *const Scanner) bool {
     return self.current >= self.code.len;
 }
 
-fn advance(self: *Scanner) u8 {
-    const char = self.code[self.current];
-    self.current += 1;
-    return char;
-}
-
 fn addToken(self: *Scanner, gpa: Allocator, tokenType: TokenType) !void {
     try self.tokens.append(gpa, tokenType);
 }
@@ -137,6 +176,6 @@ fn matchChar(self: *Scanner, token: u8) bool {
 
 const testing = std.testing;
 
-test "fail" {
-    try testing.expect(false);
-}
+// test "fail" {
+//     try testing.expect(false);
+// }
