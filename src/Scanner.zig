@@ -3,6 +3,26 @@ const Allocator = std.mem.Allocator;
 const Reporter = @import("Reporter.zig");
 const Lox = @import("Lox.zig");
 
+const StaticStringMap = std.static_string_map.StaticStringMap;
+const tokenKeywordMap = StaticStringMap(TokenType).initComptime(.{
+    .{ "and", TokenType.And },
+    .{ "class", TokenType.Class },
+    .{ "else", TokenType.Else },
+    .{ "false", TokenType.False },
+    .{ "for", TokenType.For },
+    .{ "fun", TokenType.Fun },
+    .{ "if", TokenType.If },
+    .{ "nil", TokenType.Nil },
+    .{ "or", TokenType.Or },
+    .{ "print", TokenType.Print },
+    .{ "return", TokenType.Return },
+    .{ "super", TokenType.Super },
+    .{ "this", TokenType.This },
+    .{ "true", TokenType.True },
+    .{ "var", TokenType.Var },
+    .{ "while", TokenType.While },
+});
+
 const Scanner = @This();
 line: u32,
 start: u32,
@@ -143,7 +163,6 @@ pub fn scanTokens(self: *Scanner, gpa: Allocator, reporter: Reporter) ScanTokens
                 try self.addToken(gpa, TokenType.String);
             },
             '0'...'9' => {
-                // const start = self.current - 1;
                 while (std.ascii.isDigit(self.code[self.current])) {
                     self.current += 1;
                 }
@@ -154,15 +173,14 @@ pub fn scanTokens(self: *Scanner, gpa: Allocator, reporter: Reporter) ScanTokens
                     }
                 }
                 try self.addToken(gpa, TokenType.Number);
-                // std.debug.print("Number: {s}\n", .{self.code[start..self.current]});
             },
             'a'...'z', 'A'...'Z', '_' => {
-                // const start = self.current - 1;
                 while (!self.isAtEnd() and std.ascii.isAlphanumeric(self.code[self.current])) {
                     self.current += 1;
                 }
-                // std.debug.print("Number: {s}\n", .{self.code[start..self.current]});
-                try self.addToken(gpa, TokenType.Identifier);
+                const identifierText = self.code[self.start..self.current];
+                const identifierTokenType = tokenKeywordMap.get(identifierText) orelse TokenType.Identifier;
+                try self.addToken(gpa, identifierTokenType);
             },
             else => {
                 var message = comptime blk: {
