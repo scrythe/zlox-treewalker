@@ -1,6 +1,8 @@
 const std = @import("std");
+const Io = std.Io;
 const log = std.log.scoped(.zlox);
 const Lox = @import("Lox.zig");
+const Reporter = @import("Reporter.zig");
 
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
@@ -13,6 +15,7 @@ pub fn main(init: std.process.Init) !void {
     var stderr_buffer: [1024]u8 = undefined;
     var stderr_file_writer = std.Io.File.stderr().writer(io, &stderr_buffer);
     const stderr_writer = &stderr_file_writer.interface;
+    const reporter = Reporter.init(stderr_writer);
 
     const args = init.minimal.args;
 
@@ -22,12 +25,12 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(64);
     } else if (args.vector.len == 2) {
         const filename: []const u8 = std.mem.span(args.vector[1]);
-        try Lox.runFile(gpa, io, filename);
+        try Lox.runFile(gpa, io, reporter, filename);
     } else {
         var stdin_buffer: [1024]u8 = undefined;
         var stdin_file_reader = std.Io.File.stdin().reader(io, &stdin_buffer);
         const stdin_reader = &stdin_file_reader.interface;
-        try Lox.runPrompt(gpa, stdout_writer, stdin_reader);
+        try Lox.runPrompt(gpa, reporter, stdout_writer, stdin_reader);
     }
 }
 

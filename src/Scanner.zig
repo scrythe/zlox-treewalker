@@ -1,11 +1,16 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Reporter = @import("Reporter.zig");
+const Lox = @import("Lox.zig");
 
 const Scanner = @This();
-current: u32 = 0,
+line: u32,
+start: u32,
+current: u32,
 code: []const u8,
-tokens: std.ArrayList(TokenType),
-line: u32 = 0,
+tokens: std.ArrayList(Token),
+
+pub const ScanTokensError = Allocator.Error || Lox.Error || std.Io.Writer.Error;
 
 const TokenType = enum {
     // Single-character tokens.
@@ -64,17 +69,25 @@ const Token = struct {
     }
 };
 
-pub fn init(gpa: Allocator, code: []const u8) !Scanner {
-    const tokens = try std.ArrayList(TokenType).initCapacity(gpa, code.len);
-    return Scanner{ .code = code, .tokens = tokens };
+pub fn init(gpa: Allocator, code: []const u8) Allocator.Error!Scanner {
+    const tokens = try std.ArrayList(Token).initCapacity(gpa, code.len);
+    return Scanner{
+        .line = 1,
+        .start = 0,
+        .current = 0,
+        .code = code,
+        .tokens = tokens,
+    };
 }
 
 pub fn deinit(self: *Scanner, gpa: Allocator) void {
     self.tokens.deinit(gpa);
 }
 
-pub fn scanTokens(self: *Scanner, gpa: Allocator) !void {
+pub fn scanTokens(self: *Scanner, gpa: Allocator, reporter: Reporter) ScanTokensError!void {
+    var scanError = false;
     while (!self.isAtEnd()) {
+        self.start = self.current;
         const char = self.code[self.current];
         self.current += 1;
         switch (char) {
@@ -121,6 +134,10 @@ pub fn scanTokens(self: *Scanner, gpa: Allocator) !void {
                     if (self.code[self.current] == '\n') self.line += 1;
                     self.current += 1;
                 }
+                if (self.isAtEnd()) {
+                    try reporter.report(self.line, "", "Unterminated String");
+                    scanError = true;
+                }
                 // consume "
                 self.current += 1;
                 try self.addToken(gpa, TokenType.String);
@@ -139,23 +156,37 @@ pub fn scanTokens(self: *Scanner, gpa: Allocator) !void {
                 try self.addToken(gpa, TokenType.Number);
                 // std.debug.print("Number: {s}\n", .{self.code[start..self.current]});
             },
-            '_', 'a'...'z', 'A'...'Z' => {
+            'a'...'z', 'A'...'Z', '_' => {
                 // const start = self.current - 1;
-                while (std.ascii.isAlphanumeric(self.code[self.current])) {
+                while (!self.isAtEnd() and std.ascii.isAlphanumeric(self.code[self.current])) {
                     self.current += 1;
                 }
                 // std.debug.print("Number: {s}\n", .{self.code[start..self.current]});
                 try self.addToken(gpa, TokenType.Identifier);
             },
-            else => std.debug.print("Undefined: {u}\n", .{char}),
+            else => {
+                var message = comptime blk: {
+                    const message = "Unexpected Character ";
+                    var buf: [message.len + 1]u8 = undefined;
+                    @memcpy(buf[0..message.len], message);
+                    break :blk buf;
+                };
+                message[message.len - 1] = char;
+                try reporter.report(self.line, "", &message);
+                scanError = true;
+            },
         }
+    }
+    try self.addToken(gpa, TokenType.Eof);
+    if (scanError) {
+        return Lox.Error.CompileError;
     }
 }
 
 pub fn printTokens(self: *const Scanner) void {
-    std.debug.print("Tokens: ", .{});
+    std.debug.print("Tokens: \n", .{});
     for (self.tokens.items) |token| {
-        std.debug.print("{} ", .{token});
+        std.debug.print("TokenType: {}, text: {u}\n", .{ token.tokenType, self.code[token.start] });
     }
     std.debug.print("\n", .{});
 }
@@ -164,8 +195,9 @@ fn isAtEnd(self: *const Scanner) bool {
     return self.current >= self.code.len;
 }
 
-fn addToken(self: *Scanner, gpa: Allocator, tokenType: TokenType) !void {
-    try self.tokens.append(gpa, tokenType);
+fn addToken(self: *Scanner, gpa: Allocator, tokenType: TokenType) Allocator.Error!void {
+    const token = Token.init(tokenType, self.start);
+    try self.tokens.append(gpa, token);
 }
 
 fn matchChar(self: *Scanner, token: u8) bool {
@@ -175,7 +207,3 @@ fn matchChar(self: *Scanner, token: u8) bool {
 }
 
 const testing = std.testing;
-
-// test "fail" {
-//     try testing.expect(false);
-// }
