@@ -1,7 +1,8 @@
 const std = @import("std");
-const Scanner = @import("Scanner.zig");
 const Reporter = @import("Reporter.zig");
 const Allocator = std.mem.Allocator;
+const Scanner = @import("Scanner.zig");
+const Parser = @import("Parser.zig");
 
 pub const Error = error{CompileError};
 
@@ -36,5 +37,7 @@ pub fn run(gpa: Allocator, reporter: Reporter, code: []const u8) !void {
             return err;
         }
     };
-    scanner.printTokens();
+    var parser = try Parser.init(gpa, code, scanner.tokens.items);
+    defer parser.deinit(gpa);
+    parser.parse();
 }
