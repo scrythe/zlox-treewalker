@@ -32,7 +32,7 @@ tokens: std.ArrayList(Token),
 
 pub const ScanTokensError = Allocator.Error || Lox.Error || std.Io.Writer.Error;
 
-const TokenType = enum {
+pub const TokenType = enum {
     // Single-character tokens.
     LeftParen,
     RightParen,
@@ -81,7 +81,7 @@ const TokenType = enum {
     Eof,
 };
 
-const Token = struct {
+pub const Token = struct {
     tokenType: TokenType,
     start: u32,
     fn init(tokenType: TokenType, start: u32) Token {
