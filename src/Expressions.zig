@@ -1,6 +1,6 @@
 const Scanner = @import("Scanner.zig");
 
-const ExprionId = u32;
+pub const ExprionId = u32;
 
 pub const BinaryExpr = struct { left: ExprionId, operator: Scanner.TokenType, right: ExprionId };
 pub const GroupingExpr = struct { expression: *Expression };

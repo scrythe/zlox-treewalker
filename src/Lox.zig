@@ -39,5 +39,5 @@ pub fn run(gpa: Allocator, reporter: Reporter, code: []const u8) !void {
     };
     var parser = try Parser.init(gpa, code, scanner.tokens.items);
     defer parser.deinit(gpa);
-    parser.parse();
+    try parser.parse(gpa);
 }
