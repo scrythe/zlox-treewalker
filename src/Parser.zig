@@ -7,7 +7,7 @@ const Allocator = std.mem.Allocator;
 const Lox = @import("Lox.zig");
 const ExprId = Expressions.ExprId;
 
-pub const ParseError = Allocator.Error || Lox.Error || std.fmt.ParseIntError;
+pub const ParseError = Allocator.Error || Lox.Error || std.fmt.ParseFloatError;
 
 const Parser = @This();
 code: []const u8,
@@ -141,7 +141,7 @@ fn parsePrimary(self: *Parser, gpa: Allocator) ParseError!ExprId {
                 }
             }
             const numberString = tokenLexeme[0..numberStringEnd];
-            const number = try std.fmt.parseInt(u32, numberString, 10);
+            const number = try std.fmt.parseFloat(f32, numberString);
             const literalValue: LiteralValue = .{ .Number = number };
             break :blk Expression{ .LiteralExpr = .{ .value = literalValue } };
         },
