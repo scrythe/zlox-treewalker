@@ -25,12 +25,12 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(64);
     } else if (args.vector.len == 2) {
         const filename: []const u8 = std.mem.span(args.vector[1]);
-        try Lox.runFile(gpa, io, reporter, filename);
+        try Lox.runFile(gpa, io, stdout_writer, reporter, filename);
     } else {
         var stdin_buffer: [1024]u8 = undefined;
         var stdin_file_reader = std.Io.File.stdin().reader(io, &stdin_buffer);
         const stdin_reader = &stdin_file_reader.interface;
-        try Lox.runPrompt(gpa, reporter, stdout_writer, stdin_reader);
+        try Lox.runPrompt(gpa, stdout_writer, stdin_reader, reporter);
     }
 }
 

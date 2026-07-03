@@ -3,22 +3,23 @@ const Reporter = @import("Reporter.zig");
 const Allocator = std.mem.Allocator;
 const Scanner = @import("Scanner.zig");
 const Parser = @import("Parser.zig");
+const AstPrinter = @import("AstPrinter.zig");
 
 pub const Error = error{CompileError};
 
-pub fn runFile(gpa: Allocator, io: std.Io, reporter: Reporter, filename: []const u8) !void {
+pub fn runFile(gpa: Allocator, io: std.Io, stdout_writer: *std.Io.Writer, reporter: Reporter, filename: []const u8) !void {
     var buffer: [1024]u8 = undefined;
     const file = try std.Io.Dir.cwd().readFile(io, filename, &buffer);
-    try run(gpa, reporter, file);
+    try run(gpa, stdout_writer, reporter, file);
 }
 
-pub fn runPrompt(gpa: Allocator, reporter: Reporter, stdout_writer: *std.Io.Writer, stdin_reader: *std.Io.Reader) !void {
+pub fn runPrompt(gpa: Allocator, stdout_writer: *std.Io.Writer, stdin_reader: *std.Io.Reader, reporter: Reporter) !void {
     while (true) {
         try stdout_writer.print("> ", .{});
         try stdout_writer.flush();
         const line = try stdin_reader.takeDelimiter('\n');
         if (line) |line_value| {
-            try run(gpa, reporter, line_value);
+            try run(gpa, stdout_writer, reporter, line_value);
         } else {
             try stdout_writer.print("\n", .{});
             try stdout_writer.flush();
@@ -27,7 +28,7 @@ pub fn runPrompt(gpa: Allocator, reporter: Reporter, stdout_writer: *std.Io.Writ
     }
 }
 
-pub fn run(gpa: Allocator, reporter: Reporter, code: []const u8) !void {
+pub fn run(gpa: Allocator, stdout_writer: *std.Io.Writer, reporter: Reporter, code: []const u8) !void {
     var scanner = try Scanner.init(gpa, code);
     defer scanner.deinit(gpa);
     var hasError = false;
@@ -39,5 +40,7 @@ pub fn run(gpa: Allocator, reporter: Reporter, code: []const u8) !void {
     };
     var parser = try Parser.init(gpa, code, scanner.tokens.items);
     defer parser.deinit(gpa);
-    try parser.parse(gpa, reporter);
+    const exprId = try parser.parse(gpa, reporter);
+    const astPrinter = AstPrinter.init(parser.expressions.items);
+    try astPrinter.print(stdout_writer, exprId);
 }

@@ -27,17 +27,8 @@ pub fn deinit(self: *Parser, gpa: Allocator) void {
     self.expressions.deinit(gpa);
 }
 
-pub fn parse(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!void {
-    for (self.tokens) |token| {
-        std.debug.print("token: {}\n", .{token});
-    }
-    // const token = self.tokens[self.current];
-    const expression = try self.parseExpression(gpa, reporter);
-    std.debug.print("expression: {}\n", .{expression});
-    // std.debug.print("{}\n", .{self.tokens[self.current]});
-    for (self.expressions.items) |expr| {
-        std.debug.print("expression: {}\n", .{expr});
-    }
+pub fn parse(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
+    return try self.parseExpression(gpa, reporter);
 }
 
 /// expression -> equality
