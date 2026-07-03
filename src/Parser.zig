@@ -1,8 +1,11 @@
 const std = @import("std");
 const Scanner = @import("Scanner.zig");
 const Expressions = @import("Expressions.zig");
+const Expression = Expressions.Expression;
+const LiteralValue = Expressions.LiteralValue;
 const Allocator = std.mem.Allocator;
 const Lox = @import("Lox.zig");
+const ExprId = Expressions.ExprId;
 
 pub const ParseError = Allocator.Error || Lox.Error || std.fmt.ParseIntError;
 
@@ -10,10 +13,10 @@ const Parser = @This();
 code: []const u8,
 tokens: []const Scanner.Token,
 current: u32,
-expressions: std.ArrayList(Expressions.Expression),
+expressions: std.ArrayList(Expression),
 
 pub fn init(gpa: Allocator, code: []const u8, tokens: []const Scanner.Token) ParseError!Parser {
-    const expressions = try std.ArrayList(Expressions.Expression).initCapacity(gpa, tokens.len);
+    const expressions = try std.ArrayList(Expression).initCapacity(gpa, tokens.len);
     return Parser{ .code = code, .tokens = tokens, .current = 0, .expressions = expressions };
 }
 
@@ -35,18 +38,19 @@ pub fn parse(self: *Parser, gpa: Allocator) ParseError!void {
 }
 
 /// expression -> equality
-fn parseExpression(self: *Parser, gpa: Allocator) ParseError!Expressions.ExprionId {
+fn parseExpression(self: *Parser, gpa: Allocator) ParseError!ExprId {
     return self.parseEquality(gpa);
 }
 
 /// equality -> comparison ( ( "!=" | "==" ) comparison )*
-fn parseEquality(self: *Parser, gpa: Allocator) ParseError!Expressions.ExprionId {
+fn parseEquality(self: *Parser, gpa: Allocator) ParseError!ExprId {
     var comparisonExprId = try self.parseComparison(gpa);
     var tokenType = self.tokens[self.current].tokenType;
     while (equalsTokenTypes(tokenType, &.{ .BangEqual, .EqualEqual })) {
         self.current += 1;
         const rightComparisonExprId = try self.parseComparison(gpa);
-        const equalityExpr = Expressions.Expression{ .BinaryExpr = Expressions.BinaryExpr{ .left = comparisonExprId, .operator = tokenType, .right = rightComparisonExprId } };
+        const equalityExprValue: Expressions.BinaryExpr = .{ .left = comparisonExprId, .operator = tokenType, .right = rightComparisonExprId };
+        const equalityExpr = Expression{ .BinaryExpr = equalityExprValue };
         comparisonExprId = try self.addExpression(gpa, equalityExpr);
 
         tokenType = self.tokens[self.current].tokenType;
@@ -55,13 +59,14 @@ fn parseEquality(self: *Parser, gpa: Allocator) ParseError!Expressions.ExprionId
 }
 
 /// comparison -> term ( ( ">" | ">=" | "<" | "<=" ) term )*
-fn parseComparison(self: *Parser, gpa: Allocator) ParseError!Expressions.ExprionId {
+fn parseComparison(self: *Parser, gpa: Allocator) ParseError!ExprId {
     var termExprId = try self.parseTerm(gpa);
     var tokenType = self.tokens[self.current].tokenType;
     while (equalsTokenTypes(tokenType, &.{ .Less, .LessEqual, .Greater, .GreaterEqual })) {
         self.current += 1;
         const rightTermExprId = try self.parseTerm(gpa);
-        const comparisonExpr = Expressions.Expression{ .BinaryExpr = Expressions.BinaryExpr{ .left = termExprId, .operator = tokenType, .right = rightTermExprId } };
+        const comparisonExprValue: Expressions.BinaryExpr = .{ .left = termExprId, .operator = tokenType, .right = rightTermExprId };
+        const comparisonExpr = Expression{ .BinaryExpr = comparisonExprValue };
         termExprId = try self.addExpression(gpa, comparisonExpr);
 
         tokenType = self.tokens[self.current].tokenType;
@@ -70,13 +75,14 @@ fn parseComparison(self: *Parser, gpa: Allocator) ParseError!Expressions.Exprion
 }
 
 /// term -> factor ( ( "+" | "-" ) factor )*
-fn parseTerm(self: *Parser, gpa: Allocator) ParseError!Expressions.ExprionId {
+fn parseTerm(self: *Parser, gpa: Allocator) ParseError!ExprId {
     var factorExprId = try self.parseFactor(gpa);
     var tokenType = self.tokens[self.current].tokenType;
     while (equalsTokenTypes(tokenType, &.{ .Plus, .Minus })) {
         self.current += 1;
         const rightFactorExprId = try self.parseFactor(gpa);
-        const termExpr = Expressions.Expression{ .BinaryExpr = Expressions.BinaryExpr{ .left = factorExprId, .operator = tokenType, .right = rightFactorExprId } };
+        const termExprValue: Expressions.BinaryExpr = .{ .left = factorExprId, .operator = tokenType, .right = rightFactorExprId };
+        const termExpr = Expression{ .BinaryExpr = termExprValue };
         factorExprId = try self.addExpression(gpa, termExpr);
 
         tokenType = self.tokens[self.current].tokenType;
@@ -85,13 +91,14 @@ fn parseTerm(self: *Parser, gpa: Allocator) ParseError!Expressions.ExprionId {
 }
 
 /// factor -> unary ( ( "*" | "/" ) unary )*
-fn parseFactor(self: *Parser, gpa: Allocator) ParseError!Expressions.ExprionId {
+fn parseFactor(self: *Parser, gpa: Allocator) ParseError!ExprId {
     var unaryExprId = try self.parseUnary(gpa);
     var tokenType = self.tokens[self.current].tokenType;
     while (equalsTokenTypes(tokenType, &.{ .Star, .Slash })) {
         self.current += 1;
         const rightUnaryExprId = try self.parseUnary(gpa);
-        const factorExpr = Expressions.Expression{ .BinaryExpr = Expressions.BinaryExpr{ .left = unaryExprId, .operator = tokenType, .right = rightUnaryExprId } };
+        const factorExprValue: Expressions.BinaryExpr = .{ .left = unaryExprId, .operator = tokenType, .right = rightUnaryExprId };
+        const factorExpr = Expression{ .BinaryExpr = factorExprValue };
         unaryExprId = try self.addExpression(gpa, factorExpr);
 
         tokenType = self.tokens[self.current].tokenType;
@@ -101,12 +108,13 @@ fn parseFactor(self: *Parser, gpa: Allocator) ParseError!Expressions.ExprionId {
 
 /// unary -> ( "!" | "-" ) unary
 ///         | primary
-fn parseUnary(self: *Parser, gpa: Allocator) ParseError!Expressions.ExprionId {
+fn parseUnary(self: *Parser, gpa: Allocator) ParseError!ExprId {
     const tokenType = self.tokens[self.current].tokenType;
     if (equalsTokenTypes(tokenType, &.{ Scanner.TokenType.Bang, Scanner.TokenType.Minus })) {
         self.current += 1;
         const rightUnaryExprId = try self.parseUnary(gpa);
-        const totalUnaryExpr = Expressions.Expression{ .UnaryExpr = Expressions.UnaryExpr{ .operator = tokenType, .right = rightUnaryExprId } };
+        const totalUnaryExprValue: Expressions.UnaryExpr = .{ .operator = tokenType, .right = rightUnaryExprId };
+        const totalUnaryExpr = Expression{ .UnaryExpr = totalUnaryExprValue };
         return self.addExpression(gpa, totalUnaryExpr);
     }
     return self.parsePrimary(gpa);
@@ -114,13 +122,13 @@ fn parseUnary(self: *Parser, gpa: Allocator) ParseError!Expressions.ExprionId {
 
 /// primary -> Number | String | "true" | "false" | "nil"
 ///         | "(" expression ")"
-fn parsePrimary(self: *Parser, gpa: Allocator) ParseError!Expressions.ExprionId {
+fn parsePrimary(self: *Parser, gpa: Allocator) ParseError!ExprId {
     const token = self.tokens[self.current];
     self.current += 1;
     const expr = switch (token.tokenType) {
-        .False => Expressions.Expression{ .LiteralExpr = Expressions.LiteralExpr{ .value = Expressions.LiteralValue{ .Bool = false } } },
-        .True => Expressions.Expression{ .LiteralExpr = Expressions.LiteralExpr{ .value = Expressions.LiteralValue{ .Bool = true } } },
-        .Nil => Expressions.Expression{ .LiteralExpr = Expressions.LiteralExpr{ .value = Expressions.LiteralValue{ .None = {} } } },
+        .False => Expression{ .LiteralExpr = .{ .value = LiteralValue{ .Bool = false } } },
+        .True => Expression{ .LiteralExpr = .{ .value = LiteralValue{ .Bool = true } } },
+        .Nil => Expression{ .LiteralExpr = .{ .value = LiteralValue{ .None = {} } } },
         .Number => blk: {
             const nextTokenStart = self.tokens[self.current].start;
             const tokenLexeme = self.code[token.start..nextTokenStart];
@@ -134,11 +142,12 @@ fn parsePrimary(self: *Parser, gpa: Allocator) ParseError!Expressions.ExprionId 
             }
             const numberString = tokenLexeme[0..numberStringEnd];
             const number = try std.fmt.parseInt(u32, numberString, 10);
-            break :blk Expressions.Expression{ .LiteralExpr = Expressions.LiteralExpr{ .value = Expressions.LiteralValue{ .Number = number } } };
+            const literalValue: LiteralValue = .{ .Number = number };
+            break :blk Expression{ .LiteralExpr = .{ .value = literalValue } };
         },
         .String => blk: {
             const nextTokenStart = self.tokens[self.current].start;
-            const tokenLexeme = self.code[token.start..nextTokenStart][1..];
+            const tokenLexeme = self.code[token.start + 1 .. nextTokenStart];
 
             var stringEnd = tokenLexeme.len;
             for (tokenLexeme, 0..) |char, i| {
@@ -148,8 +157,8 @@ fn parsePrimary(self: *Parser, gpa: Allocator) ParseError!Expressions.ExprionId 
                 }
             }
             const string = tokenLexeme[0..stringEnd];
-            std.debug.print("{s}\n", .{string});
-            break :blk Expressions.Expression{ .LiteralExpr = Expressions.LiteralExpr{ .value = Expressions.LiteralValue{ .String = string } } };
+            const literalValue: LiteralValue = .{ .String = string };
+            break :blk Expression{ .LiteralExpr = .{ .value = literalValue } };
         },
         .LeftParen => blk: {
             const exprId = try self.parseExpression(gpa);
@@ -157,14 +166,14 @@ fn parsePrimary(self: *Parser, gpa: Allocator) ParseError!Expressions.ExprionId 
                 return Lox.Error.CompileError;
             }
             self.current += 1;
-            break :blk Expressions.Expression{ .GroupingExpr = Expressions.GroupingExpr{ .expression = exprId } };
+            break :blk Expression{ .GroupingExpr = .{ .expression = exprId } };
         },
         else => unreachable,
     };
     return try self.addExpression(gpa, expr);
 }
 
-fn addExpression(self: *Parser, gpa: Allocator, expr: Expressions.Expression) Allocator.Error!Expressions.ExprionId {
+fn addExpression(self: *Parser, gpa: Allocator, expr: Expression) Allocator.Error!ExprId {
     const id = self.expressions.items.len;
     try self.expressions.append(gpa, expr);
     return @intCast(id);
