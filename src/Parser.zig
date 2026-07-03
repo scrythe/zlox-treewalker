@@ -1,13 +1,16 @@
 const std = @import("std");
 const Scanner = @import("Scanner.zig");
 const Expressions = @import("Expressions.zig");
+const Lox = @import("Lox.zig");
+const Reporter = @import("Reporter.zig");
+
 const Expression = Expressions.Expression;
 const LiteralValue = Expressions.LiteralValue;
 const Allocator = std.mem.Allocator;
-const Lox = @import("Lox.zig");
 const ExprId = Expressions.ExprId;
+const TokenType = Scanner.TokenType;
 
-pub const ParseError = Allocator.Error || Lox.Error || std.fmt.ParseFloatError;
+pub const ParseError = Allocator.Error || Lox.Error || std.fmt.ParseFloatError || std.Io.Writer.Error;
 
 const Parser = @This();
 code: []const u8,
@@ -24,12 +27,12 @@ pub fn deinit(self: *Parser, gpa: Allocator) void {
     self.expressions.deinit(gpa);
 }
 
-pub fn parse(self: *Parser, gpa: Allocator) ParseError!void {
+pub fn parse(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!void {
     for (self.tokens) |token| {
         std.debug.print("token: {}\n", .{token});
     }
     // const token = self.tokens[self.current];
-    const expression = try self.parseExpression(gpa);
+    const expression = try self.parseExpression(gpa, reporter);
     std.debug.print("expression: {}\n", .{expression});
     // std.debug.print("{}\n", .{self.tokens[self.current]});
     for (self.expressions.items) |expr| {
@@ -38,17 +41,17 @@ pub fn parse(self: *Parser, gpa: Allocator) ParseError!void {
 }
 
 /// expression -> equality
-fn parseExpression(self: *Parser, gpa: Allocator) ParseError!ExprId {
-    return self.parseEquality(gpa);
+fn parseExpression(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
+    return self.parseEquality(gpa, reporter);
 }
 
 /// equality -> comparison ( ( "!=" | "==" ) comparison )*
-fn parseEquality(self: *Parser, gpa: Allocator) ParseError!ExprId {
-    var comparisonExprId = try self.parseComparison(gpa);
+fn parseEquality(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
+    var comparisonExprId = try self.parseComparison(gpa, reporter);
     var tokenType = self.tokens[self.current].tokenType;
     while (equalsTokenTypes(tokenType, &.{ .BangEqual, .EqualEqual })) {
         self.current += 1;
-        const rightComparisonExprId = try self.parseComparison(gpa);
+        const rightComparisonExprId = try self.parseComparison(gpa, reporter);
         const equalityExprValue: Expressions.BinaryExpr = .{ .left = comparisonExprId, .operator = tokenType, .right = rightComparisonExprId };
         const equalityExpr = Expression{ .BinaryExpr = equalityExprValue };
         comparisonExprId = try self.addExpression(gpa, equalityExpr);
@@ -59,12 +62,12 @@ fn parseEquality(self: *Parser, gpa: Allocator) ParseError!ExprId {
 }
 
 /// comparison -> term ( ( ">" | ">=" | "<" | "<=" ) term )*
-fn parseComparison(self: *Parser, gpa: Allocator) ParseError!ExprId {
-    var termExprId = try self.parseTerm(gpa);
+fn parseComparison(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
+    var termExprId = try self.parseTerm(gpa, reporter);
     var tokenType = self.tokens[self.current].tokenType;
     while (equalsTokenTypes(tokenType, &.{ .Less, .LessEqual, .Greater, .GreaterEqual })) {
         self.current += 1;
-        const rightTermExprId = try self.parseTerm(gpa);
+        const rightTermExprId = try self.parseTerm(gpa, reporter);
         const comparisonExprValue: Expressions.BinaryExpr = .{ .left = termExprId, .operator = tokenType, .right = rightTermExprId };
         const comparisonExpr = Expression{ .BinaryExpr = comparisonExprValue };
         termExprId = try self.addExpression(gpa, comparisonExpr);
@@ -75,12 +78,12 @@ fn parseComparison(self: *Parser, gpa: Allocator) ParseError!ExprId {
 }
 
 /// term -> factor ( ( "+" | "-" ) factor )*
-fn parseTerm(self: *Parser, gpa: Allocator) ParseError!ExprId {
-    var factorExprId = try self.parseFactor(gpa);
+fn parseTerm(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
+    var factorExprId = try self.parseFactor(gpa, reporter);
     var tokenType = self.tokens[self.current].tokenType;
     while (equalsTokenTypes(tokenType, &.{ .Plus, .Minus })) {
         self.current += 1;
-        const rightFactorExprId = try self.parseFactor(gpa);
+        const rightFactorExprId = try self.parseFactor(gpa, reporter);
         const termExprValue: Expressions.BinaryExpr = .{ .left = factorExprId, .operator = tokenType, .right = rightFactorExprId };
         const termExpr = Expression{ .BinaryExpr = termExprValue };
         factorExprId = try self.addExpression(gpa, termExpr);
@@ -91,12 +94,12 @@ fn parseTerm(self: *Parser, gpa: Allocator) ParseError!ExprId {
 }
 
 /// factor -> unary ( ( "*" | "/" ) unary )*
-fn parseFactor(self: *Parser, gpa: Allocator) ParseError!ExprId {
-    var unaryExprId = try self.parseUnary(gpa);
+fn parseFactor(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
+    var unaryExprId = try self.parseUnary(gpa, reporter);
     var tokenType = self.tokens[self.current].tokenType;
     while (equalsTokenTypes(tokenType, &.{ .Star, .Slash })) {
         self.current += 1;
-        const rightUnaryExprId = try self.parseUnary(gpa);
+        const rightUnaryExprId = try self.parseUnary(gpa, reporter);
         const factorExprValue: Expressions.BinaryExpr = .{ .left = unaryExprId, .operator = tokenType, .right = rightUnaryExprId };
         const factorExpr = Expression{ .BinaryExpr = factorExprValue };
         unaryExprId = try self.addExpression(gpa, factorExpr);
@@ -108,21 +111,21 @@ fn parseFactor(self: *Parser, gpa: Allocator) ParseError!ExprId {
 
 /// unary -> ( "!" | "-" ) unary
 ///         | primary
-fn parseUnary(self: *Parser, gpa: Allocator) ParseError!ExprId {
+fn parseUnary(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
     const tokenType = self.tokens[self.current].tokenType;
-    if (equalsTokenTypes(tokenType, &.{ Scanner.TokenType.Bang, Scanner.TokenType.Minus })) {
+    if (equalsTokenTypes(tokenType, &.{ TokenType.Bang, TokenType.Minus })) {
         self.current += 1;
-        const rightUnaryExprId = try self.parseUnary(gpa);
+        const rightUnaryExprId = try self.parseUnary(gpa, reporter);
         const totalUnaryExprValue: Expressions.UnaryExpr = .{ .operator = tokenType, .right = rightUnaryExprId };
         const totalUnaryExpr = Expression{ .UnaryExpr = totalUnaryExprValue };
         return self.addExpression(gpa, totalUnaryExpr);
     }
-    return self.parsePrimary(gpa);
+    return self.parsePrimary(gpa, reporter);
 }
 
 /// primary -> Number | String | "true" | "false" | "nil"
 ///         | "(" expression ")"
-fn parsePrimary(self: *Parser, gpa: Allocator) ParseError!ExprId {
+fn parsePrimary(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
     const token = self.tokens[self.current];
     self.current += 1;
     const expr = switch (token.tokenType) {
@@ -161,8 +164,24 @@ fn parsePrimary(self: *Parser, gpa: Allocator) ParseError!ExprId {
             break :blk Expression{ .LiteralExpr = .{ .value = literalValue } };
         },
         .LeftParen => blk: {
-            const exprId = try self.parseExpression(gpa);
-            if (self.tokens[self.current].tokenType != Scanner.TokenType.RightParen) {
+            const exprId = try self.parseExpression(gpa, reporter);
+            const nextToken = self.tokens[self.current];
+            if (nextToken.tokenType != TokenType.RightParen) {
+                const tokenLexeme = self.code[token.start..nextToken.start];
+                var lexemeEnd = tokenLexeme.len;
+                for (tokenLexeme, 0..) |char, i| {
+                    if (char == '\r' or char == '\t' or char == '\n' or char == ' ') {
+                        lexemeEnd = i;
+                        break;
+                    }
+                }
+                const lexeme = tokenLexeme[0..lexemeEnd];
+                const messagePart = "at ";
+                const message = try gpa.alloc(u8, messagePart.len + lexeme.len);
+                defer gpa.free(message);
+                @memcpy(message[0..messagePart.len], messagePart);
+                @memcpy(message[messagePart.len..], lexeme);
+                try reporter.report(nextToken.line, message, "Expect ')' after expression");
                 return Lox.Error.CompileError;
             }
             self.current += 1;
@@ -179,7 +198,7 @@ fn addExpression(self: *Parser, gpa: Allocator, expr: Expression) Allocator.Erro
     return @intCast(id);
 }
 
-fn equalsTokenTypes(tokenType: Scanner.TokenType, comptime tokenTypes: []const Scanner.TokenType) bool {
+fn equalsTokenTypes(tokenType: TokenType, comptime tokenTypes: []const TokenType) bool {
     inline for (tokenTypes) |expectedToken| {
         if (tokenType == expectedToken) return true;
     }

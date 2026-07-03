@@ -84,8 +84,9 @@ pub const TokenType = enum {
 pub const Token = struct {
     tokenType: TokenType,
     start: u32,
-    fn init(tokenType: TokenType, start: u32) Token {
-        return Token{ .tokenType = tokenType, .start = start };
+    line: u32,
+    fn init(tokenType: TokenType, start: u32, line: u32) Token {
+        return Token{ .tokenType = tokenType, .start = start, .line = line };
     }
 };
 
@@ -214,7 +215,7 @@ fn isAtEnd(self: *const Scanner) bool {
 }
 
 fn addToken(self: *Scanner, gpa: Allocator, tokenType: TokenType) Allocator.Error!void {
-    const token = Token.init(tokenType, self.start);
+    const token = Token.init(tokenType, self.start, self.line);
     try self.tokens.append(gpa, token);
 }
 
