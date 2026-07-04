@@ -195,3 +195,34 @@ fn equalsTokenTypes(tokenType: TokenType, comptime tokenTypes: []const TokenType
     }
     return false;
 }
+
+fn fuzzTestOneParser(_: void, smith: *std.testing.Smith) !void {
+    @disableInstrumentation();
+    const gpa = std.testing.allocator;
+    const len = smith.valueRangeAtMost(u32, 1, 250);
+    const code = try gpa.alloc(u8, len);
+    defer gpa.free(code);
+    _ = smith.slice(code);
+    var scanner = try Scanner.init(gpa, code);
+    defer scanner.deinit(gpa);
+    var stderr_file_writer = std.Io.Writer.Discarding.init(&.{});
+    const stderr_writer = &stderr_file_writer.writer;
+    const reporter = Reporter.init(stderr_writer);
+    scanner.scanTokens(gpa, reporter) catch |err| switch (err) {
+        Scanner.ScanTokensError.CompileError => return,
+        else => return err,
+    };
+}
+
+test "fuzz Parser and AstPrinter" {
+    try std.testing.fuzz({}, fuzzTestOneParser, .{});
+}
+
+test "test Parser and AstPrinter fuzz crash" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    const crash = try std.Io.Dir.cwd().readFileAlloc(io, ".zig-cache/f/crash", gpa, std.Io.Limit.unlimited);
+    defer gpa.free(crash);
+    var smith = std.testing.Smith{ .in = crash };
+    try fuzzTestOneParser({}, &smith);
+}

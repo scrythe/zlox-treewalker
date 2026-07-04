@@ -164,12 +164,12 @@ pub fn scanTokens(self: *Scanner, gpa: Allocator, reporter: Reporter) ScanTokens
                 try self.addToken(gpa, TokenType.String);
             },
             '0'...'9' => {
-                while (std.ascii.isDigit(self.code[self.current])) {
+                while (!self.isAtEnd() and std.ascii.isDigit(self.code[self.current])) {
                     self.current += 1;
                 }
-                if (self.code[self.current] == '.' and std.ascii.isDigit(self.code[self.current + 1])) {
+                if (!self.isAtEnd() and self.code[self.current] == '.') {
                     self.current += 1;
-                    while (std.ascii.isDigit(self.code[self.current])) {
+                    while (!self.isAtEnd() and std.ascii.isDigit(self.code[self.current])) {
                         self.current += 1;
                     }
                 }
