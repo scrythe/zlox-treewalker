@@ -107,7 +107,7 @@ pub fn deinit(self: *Scanner, gpa: Allocator) void {
 
 pub fn scanTokens(self: *Scanner, gpa: Allocator, reporter: Reporter) ScanTokensError!void {
     var scanError = false;
-    while (!self.isAtEnd()) {
+    scanning: while (!self.isAtEnd()) {
         self.start = self.current;
         const char = self.code[self.current];
         self.current += 1;
@@ -158,6 +158,7 @@ pub fn scanTokens(self: *Scanner, gpa: Allocator, reporter: Reporter) ScanTokens
                 if (self.isAtEnd()) {
                     try reporter.report(self.line, "", "Unterminated String");
                     scanError = true;
+                    break :scanning;
                 }
                 // consume "
                 self.current += 1;
@@ -196,18 +197,24 @@ pub fn scanTokens(self: *Scanner, gpa: Allocator, reporter: Reporter) ScanTokens
             },
         }
     }
+    self.start = self.current;
     try self.addToken(gpa, TokenType.Eof);
     if (scanError) {
         return Lox.Error.CompileError;
     }
 }
 
-pub fn printTokens(self: *const Scanner) void {
-    std.debug.print("Tokens: \n", .{});
+pub fn printTokens(self: *const Scanner, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    try writer.print("Tokens: \n", .{});
     for (self.tokens.items) |token| {
-        std.debug.print("TokenType: {}, text: {u}\n", .{ token.tokenType, self.code[token.start] });
+        if (token.tokenType == TokenType.Eof) {
+            try writer.print("TokenType: {}\n", .{token.tokenType});
+        } else {
+            try writer.print("TokenType: {}, text: {u}\n", .{ token.tokenType, self.code[token.start] });
+        }
     }
-    std.debug.print("\n", .{});
+    try writer.print("\n", .{});
+    try writer.flush();
 }
 
 fn isAtEnd(self: *const Scanner) bool {
@@ -224,5 +231,3 @@ fn matchChar(self: *Scanner, token: u8) bool {
     self.current += 1;
     return true;
 }
-
-const testing = std.testing;

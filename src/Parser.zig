@@ -12,6 +12,8 @@ const TokenType = Scanner.TokenType;
 
 pub const ParseError = Allocator.Error || Lox.Error || std.fmt.ParseFloatError || std.Io.Writer.Error;
 
+const log = std.log.scoped(.parser);
+
 const Parser = @This();
 code: []const u8,
 tokens: []const Scanner.Token,
@@ -140,8 +142,8 @@ fn parsePrimary(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!Ex
             break :blk Expression{ .LiteralExpr = .{ .value = literalValue } };
         },
         .String => blk: {
-            const nextTokenStart = self.tokens[self.current].start;
-            const tokenLexeme = self.code[token.start + 1 .. nextTokenStart];
+            const nextToken = self.tokens[self.current];
+            const tokenLexeme = self.code[token.start + 1 .. nextToken.start];
 
             var stringEnd = tokenLexeme.len;
             for (tokenLexeme, 0..) |char, i| {
@@ -158,27 +160,25 @@ fn parsePrimary(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!Ex
             const exprId = try self.parseExpression(gpa, reporter);
             const nextToken = self.tokens[self.current];
             if (nextToken.tokenType != TokenType.RightParen) {
-                const tokenLexeme = self.code[token.start..nextToken.start];
-                var lexemeEnd = tokenLexeme.len;
-                for (tokenLexeme, 0..) |char, i| {
-                    if (char == '\r' or char == '\t' or char == '\n' or char == ' ') {
-                        lexemeEnd = i;
-                        break;
-                    }
-                }
-                const lexeme = tokenLexeme[0..lexemeEnd];
-                const messagePart = "at ";
-                const message = try gpa.alloc(u8, messagePart.len + lexeme.len);
-                defer gpa.free(message);
-                @memcpy(message[0..messagePart.len], messagePart);
-                @memcpy(message[messagePart.len..], lexeme);
-                try reporter.report(nextToken.line, message, "Expect ')' after expression");
+                const errWhere = try self.getTokenErrWhere(gpa, token, nextToken);
+                defer gpa.free(errWhere);
+                try reporter.report(nextToken.line, errWhere, "Expect ')' after expression");
                 return Lox.Error.CompileError;
             }
             self.current += 1;
             break :blk Expression{ .GroupingExpr = .{ .expression = exprId } };
         },
-        else => unreachable,
+        else => {
+            const errWhere = if (self.current < self.tokens.len) blk: {
+                const nextToken = self.tokens[self.current];
+                break :blk try self.getTokenErrWhere(gpa, token, nextToken);
+            } else blk: {
+                break :blk "";
+            };
+            defer if (self.current < self.tokens.len) gpa.free(errWhere);
+            try reporter.report(token.line, errWhere, "Expect expression");
+            return Lox.Error.CompileError;
+        },
     };
     return try self.addExpression(gpa, expr);
 }
@@ -196,33 +196,78 @@ fn equalsTokenTypes(tokenType: TokenType, comptime tokenTypes: []const TokenType
     return false;
 }
 
-fn fuzzTestOneParser(_: void, smith: *std.testing.Smith) !void {
+fn getTokenErrWhere(self: *const Parser, gpa: Allocator, token: Scanner.Token, nextToken: Scanner.Token) ![]const u8 {
+    const tokenLexeme = self.code[token.start..nextToken.start];
+    var lexemeEnd = tokenLexeme.len;
+    for (tokenLexeme, 0..) |char, i| {
+        if (char == '\r' or char == '\t' or char == '\n' or char == ' ') {
+            lexemeEnd = i;
+            break;
+        }
+    }
+    const lexeme = tokenLexeme[0..lexemeEnd];
+    const errWhereStart = "at ";
+    const errWhere = try gpa.alloc(u8, errWhereStart.len + lexeme.len);
+    @memcpy(errWhere[0..errWhereStart.len], errWhereStart);
+    @memcpy(errWhere[errWhereStart.len..], lexeme);
+    return errWhere;
+}
+
+fn fuzzTestOneScannerAndParser(_: void, smith: *std.testing.Smith) !void {
     @disableInstrumentation();
     const gpa = std.testing.allocator;
-    const len = smith.valueRangeAtMost(u32, 1, 250);
+    // const io = std.testing.io;
+
+    // const filename = "main.log";
+    // const logFile = try std.Io.Dir.cwd().createFile(io, filename, .{ .truncate = false });
+    // var logBuffer: [1024]u8 = undefined;
+    // var fileWriter = logFile.writer(io, &logBuffer);
+    // const fileLength = try logFile.length(io);
+    // try fileWriter.seekTo(fileLength);
+    // const writer = &fileWriter.interface;
+
+    var stderr_file_writer = std.Io.Writer.Discarding.init(&.{});
+    const stderr_writer = &stderr_file_writer.writer;
+
+    const reporter = Reporter.init(stderr_writer);
+
+    const len = smith.valueRangeAtMost(u32, 0, 150);
     const code = try gpa.alloc(u8, len);
     defer gpa.free(code);
     _ = smith.slice(code);
+
     var scanner = try Scanner.init(gpa, code);
     defer scanner.deinit(gpa);
-    var stderr_file_writer = std.Io.Writer.Discarding.init(&.{});
-    const stderr_writer = &stderr_file_writer.writer;
-    const reporter = Reporter.init(stderr_writer);
-    scanner.scanTokens(gpa, reporter) catch |err| switch (err) {
+
+    try stderr_writer.print("{s}", .{code});
+    scanner.scanTokens(gpa, reporter) catch |err| if (err != Scanner.ScanTokensError.CompileError) return err;
+    try scanner.printTokens(stderr_writer);
+
+    var parser = try Parser.init(gpa, code, scanner.tokens.items);
+    defer parser.deinit(gpa);
+
+    const exprId = parser.parse(gpa, reporter) catch |err| switch (err) {
         Scanner.ScanTokensError.CompileError => return,
         else => return err,
     };
+    _ = exprId;
 }
 
-test "fuzz Parser and AstPrinter" {
-    try std.testing.fuzz({}, fuzzTestOneParser, .{});
+test "fuzz scanner and parser" {
+    // std.testing.log_level = .debug;
+    try std.testing.fuzz({}, fuzzTestOneScannerAndParser, .{});
 }
 
-test "test Parser and AstPrinter fuzz crash" {
+test "test crashed parser fuzz" {
+    @disableInstrumentation();
+    // std.testing.log_level = .debug;
+    // if (!@import("config").testCrashedFuzz) return;
+    if (@import("builtin").fuzz) return;
+    if (@import("builtin").fuzz) return;
     const gpa = std.testing.allocator;
     const io = std.testing.io;
-    const crash = try std.Io.Dir.cwd().readFileAlloc(io, ".zig-cache/f/crash", gpa, std.Io.Limit.unlimited);
+    const crash = std.Io.Dir.cwd().readFileAlloc(io, ".zig-cache/f/crash", gpa, std.Io.Limit.unlimited) catch return;
     defer gpa.free(crash);
     var smith = std.testing.Smith{ .in = crash };
-    try fuzzTestOneParser({}, &smith);
+    try fuzzTestOneScannerAndParser({}, &smith);
 }

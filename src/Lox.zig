@@ -40,7 +40,8 @@ pub fn run(gpa: Allocator, stdout_writer: *std.Io.Writer, reporter: Reporter, co
     };
     var parser = try Parser.init(gpa, code, scanner.tokens.items);
     defer parser.deinit(gpa);
-    const exprId = try parser.parse(gpa, reporter);
-    const astPrinter = AstPrinter.init(parser.expressions.items);
-    try astPrinter.print(stdout_writer, exprId);
+    if (parser.parse(gpa, reporter)) |exprId| {
+        const astPrinter = AstPrinter.init(parser.expressions.items);
+        try astPrinter.print(stdout_writer, exprId);
+    } else |_| {}
 }
