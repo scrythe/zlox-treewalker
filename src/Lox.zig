@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const Scanner = @import("Scanner.zig");
 const Parser = @import("Parser.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
+const Interpreter = @import("Interpreter.zig");
 
 pub const Error = error{CompileError};
 
@@ -29,19 +30,32 @@ pub fn runPrompt(gpa: Allocator, stdout_writer: *std.Io.Writer, stdin_reader: *s
 }
 
 pub fn run(gpa: Allocator, stdout_writer: *std.Io.Writer, reporter: Reporter, code: []const u8) !void {
+    _ = stdout_writer; // autofix
     var scanner = try Scanner.init(gpa, code);
     defer scanner.deinit(gpa);
     var hasError = false;
     scanner.scanTokens(gpa, reporter) catch |err| {
         if (err != Error.CompileError) {
-            hasError = true;
             return err;
         }
+        hasError = true;
     };
     var parser = try Parser.init(gpa, code, scanner.tokens.items);
     defer parser.deinit(gpa);
-    if (parser.parse(gpa, reporter)) |exprId| {
-        const prettyPrinter = PrettyPrinter.init(parser.expressions.items);
-        try prettyPrinter.print(stdout_writer, exprId);
-    } else |_| {}
+
+    const exprId = parser.parse(gpa, reporter) catch |err| {
+        if (err != Error.CompileError) {
+            return err;
+        }
+        return;
+    };
+    if (hasError) {
+        return;
+    }
+
+    // const prettyPrinter = PrettyPrinter.init(parser.expressions.items);
+    // try prettyPrinter.print(stdout_writer, exprId);
+
+    var interpreter = Interpreter.init(parser.expressions.items);
+    interpreter.interpret(exprId);
 }
