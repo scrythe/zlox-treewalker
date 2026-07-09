@@ -140,14 +140,7 @@ fn parsePrimary(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!Ex
             const numberString = tokenLexeme[0..numberStringEnd];
             const number = try std.fmt.parseFloat(f32, numberString);
             if (std.math.isInf(number)) {
-                const errWhere = if (self.current < self.tokens.len) err: {
-                    const nextToken = self.tokens[self.current];
-                    break :err try self.getTokenErrWhere(gpa, token, nextToken);
-                } else err: {
-                    break :err "";
-                };
-                defer if (self.current < self.tokens.len) gpa.free(errWhere);
-                try reporter.report(token.line, errWhere, "Number to big, casted to infinite");
+                try reporter.reportWithContext(token.line, tokenLexeme, "Number to big, casted to infinite");
                 return Lox.Error.CompileError;
             }
             const literalValue: LiteralValue = .{ .Number = number };
@@ -172,23 +165,21 @@ fn parsePrimary(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!Ex
             const exprId = try self.parseExpression(gpa, reporter);
             const nextToken = self.tokens[self.current];
             if (nextToken.tokenType != TokenType.RightParen) {
-                const errWhere = try self.getTokenErrWhere(gpa, token, nextToken);
-                defer gpa.free(errWhere);
-                try reporter.report(nextToken.line, errWhere, "Expect ')' after expression");
+                const tokenLexeme = try self.getLexemeText(token, nextToken);
+                try reporter.reportWithContext(nextToken.line, tokenLexeme, "Expect ')' after expression");
                 return Lox.Error.CompileError;
             }
             self.current += 1;
             break :blk Expression{ .GroupingExpr = .{ .expression = exprId } };
         },
         else => {
-            const errWhere = if (self.current < self.tokens.len) blk: {
+            if (self.current < self.tokens.len) {
                 const nextToken = self.tokens[self.current];
-                break :blk try self.getTokenErrWhere(gpa, token, nextToken);
-            } else blk: {
-                break :blk "";
-            };
-            defer if (self.current < self.tokens.len) gpa.free(errWhere);
-            try reporter.report(token.line, errWhere, "Expect expression");
+                const tokenLexeme = try self.getLexemeText(token, nextToken);
+                try reporter.reportWithContext(token.line, tokenLexeme, "Expect expression");
+            } else {
+                try reporter.reportWithContextAtEnd(token.line, "Expect expression");
+            }
             return Lox.Error.CompileError;
         },
     };
@@ -208,7 +199,7 @@ fn equalsTokenTypes(tokenType: TokenType, comptime tokenTypes: []const TokenType
     return false;
 }
 
-fn getTokenErrWhere(self: *const Parser, gpa: Allocator, token: Scanner.Token, nextToken: Scanner.Token) ![]const u8 {
+fn getLexemeText(self: *const Parser, token: Scanner.Token, nextToken: Scanner.Token) ![]const u8 {
     const tokenLexeme = self.code[token.start..nextToken.start];
     var lexemeEnd = tokenLexeme.len;
     for (tokenLexeme, 0..) |char, i| {
@@ -217,46 +208,10 @@ fn getTokenErrWhere(self: *const Parser, gpa: Allocator, token: Scanner.Token, n
             break;
         }
     }
-    const lexeme = tokenLexeme[0..lexemeEnd];
-    const errWhereStart = "at ";
-    const errWhere = try gpa.alloc(u8, errWhereStart.len + lexeme.len);
-    @memcpy(errWhere[0..errWhereStart.len], errWhereStart);
-    @memcpy(errWhere[errWhereStart.len..], lexeme);
-    return errWhere;
+    return tokenLexeme[0..lexemeEnd];
 }
 
-fn fuzzTestOneScannerAndParser(_: void, smith: *std.testing.Smith) !void {
-    @disableInstrumentation();
-    const gpa = std.testing.allocator;
-
-    var stderr_file_writer = std.Io.Writer.Discarding.init(&.{});
-    const stderr_writer = &stderr_file_writer.writer;
-
-    const reporter = Reporter.init(stderr_writer);
-
-    const len = smith.valueRangeAtMost(u32, 0, 150);
-    const code = try gpa.alloc(u8, len);
-    defer gpa.free(code);
-    _ = smith.slice(code);
-
-    var scanner = try Scanner.init(gpa, code);
-    defer scanner.deinit(gpa);
-
-    try stderr_writer.print("{s}", .{code});
-    scanner.scanTokens(gpa, reporter) catch |err| if (err != Scanner.ScanTokensError.CompileError) return err;
-    try scanner.printTokens(stderr_writer);
-
-    var parser = try Parser.init(gpa, code, scanner.tokens.items);
-    defer parser.deinit(gpa);
-
-    const exprId = parser.parse(gpa, reporter) catch |err| switch (err) {
-        Scanner.ScanTokensError.CompileError => return,
-        else => return err,
-    };
-    _ = exprId;
-}
-
-fn fuzzTestOneParserAndPrettyPrinter(_: void, smith: *std.testing.Smith) !void {
+fn fuzzTestOneScannerAndParserAndPrettyPrinter(_: void, smith: *std.testing.Smith) !void {
     @disableInstrumentation();
     const gpa = std.testing.allocator;
 
@@ -288,13 +243,10 @@ fn fuzzTestOneParserAndPrettyPrinter(_: void, smith: *std.testing.Smith) !void {
     };
 
     var prettyPrinterWriterBuffer: [1024]u8 = undefined;
-    var prettyPrinterWriterOwner = std.Io.Writer.fixed(&prettyPrinterWriterBuffer);
-    const prettyPrinterWriter = &prettyPrinterWriterOwner;
-    // var prettyPrinterFileWriter = std.Io.File.stderr().writer(std.testing.io, &prettyPrinterWriterBuffer);
-    // const prettyPrinterWriter = &prettyPrinterFileWriter.interface;
+    var prettyPrinterWriter = std.Io.Writer.fixed(&prettyPrinterWriterBuffer);
 
     const prettyPrinter = PrettyPrinter.init(parser.expressions.items);
-    try prettyPrinter.print(prettyPrinterWriter, exprId);
+    try prettyPrinter.print(&prettyPrinterWriter, exprId);
     const prettyCode: []const u8 = prettyPrinterWriterBuffer[0..prettyPrinterWriter.end];
 
     var prettyScanner = try Scanner.init(gpa, prettyCode);
@@ -318,15 +270,11 @@ fn fuzzTestOneParserAndPrettyPrinter(_: void, smith: *std.testing.Smith) !void {
     try std.testing.expectEqualStrings(prettyCode, prettyPrettyCode);
 }
 
-// test "fuzz scanner and parser" {
-//     try std.testing.fuzz({}, fuzzTestOneScannerAndParser, .{});
-// }
-
 test "fuzz scanner and parser and pretty printer" {
-    try std.testing.fuzz({}, fuzzTestOneParserAndPrettyPrinter, .{});
+    try std.testing.fuzz({}, fuzzTestOneScannerAndParserAndPrettyPrinter, .{});
 }
 
-test "test crashed parser fuzz" {
+test "test crashed fuzz" {
     @disableInstrumentation();
     if (@import("builtin").fuzz) return;
     const gpa = std.testing.allocator;
@@ -334,6 +282,5 @@ test "test crashed parser fuzz" {
     const crash = std.Io.Dir.cwd().readFileAlloc(io, ".zig-cache/f/crash", gpa, std.Io.Limit.unlimited) catch return;
     defer gpa.free(crash);
     var smith = std.testing.Smith{ .in = crash };
-    // try fuzzTestOneScannerAndParser({}, &smith);
-    try fuzzTestOneParserAndPrettyPrinter({}, &smith);
+    try fuzzTestOneScannerAndParserAndPrettyPrinter({}, &smith);
 }

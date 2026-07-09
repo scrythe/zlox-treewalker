@@ -156,7 +156,7 @@ pub fn scanTokens(self: *Scanner, gpa: Allocator, reporter: Reporter) ScanTokens
                     self.current += 1;
                 }
                 if (self.isAtEnd()) {
-                    try reporter.report(self.line, "", "Unterminated String");
+                    try reporter.report(self.line, "Unterminated String");
                     scanError = true;
                     break :scanning;
                 }
@@ -185,14 +185,7 @@ pub fn scanTokens(self: *Scanner, gpa: Allocator, reporter: Reporter) ScanTokens
                 try self.addToken(gpa, identifierTokenType);
             },
             else => {
-                var message = comptime blk: {
-                    const message = "Unexpected Character ";
-                    var buf: [message.len + 1]u8 = undefined;
-                    @memcpy(buf[0..message.len], message);
-                    break :blk buf;
-                };
-                message[message.len - 1] = char;
-                try reporter.report(self.line, "", &message);
+                try reporter.report(self.line, "Unexpected Character");
                 scanError = true;
             },
         }
