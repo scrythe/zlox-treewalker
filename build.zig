@@ -13,13 +13,6 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    const testCrashedFuzz = b.option(bool, "testCrashedFuzz", "Test with the input of the crashed fuzz") orelse false;
-
-    const options = b.addOptions();
-    options.addOption(bool, "testCrashedFuzz", testCrashedFuzz);
-
-    exe.root_module.addOptions("config", options);
-
     b.installArtifact(exe);
 
     const run_step = b.step("run", "Run the compiler");

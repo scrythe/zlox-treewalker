@@ -3,6 +3,7 @@ const Scanner = @import("Scanner.zig");
 const Expressions = @import("Expressions.zig");
 const Lox = @import("Lox.zig");
 const Reporter = @import("Reporter.zig");
+const PrettyPrinter = @import("PrettyPrinter.zig");
 
 const Expression = Expressions.Expression;
 const LiteralValue = Expressions.LiteralValue;
@@ -138,6 +139,17 @@ fn parsePrimary(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!Ex
             }
             const numberString = tokenLexeme[0..numberStringEnd];
             const number = try std.fmt.parseFloat(f32, numberString);
+            if (std.math.isInf(number)) {
+                const errWhere = if (self.current < self.tokens.len) err: {
+                    const nextToken = self.tokens[self.current];
+                    break :err try self.getTokenErrWhere(gpa, token, nextToken);
+                } else err: {
+                    break :err "";
+                };
+                defer if (self.current < self.tokens.len) gpa.free(errWhere);
+                try reporter.report(token.line, errWhere, "Number to big, casted to infinite");
+                return Lox.Error.CompileError;
+            }
             const literalValue: LiteralValue = .{ .Number = number };
             break :blk Expression{ .LiteralExpr = .{ .value = literalValue } };
         },
@@ -216,15 +228,6 @@ fn getTokenErrWhere(self: *const Parser, gpa: Allocator, token: Scanner.Token, n
 fn fuzzTestOneScannerAndParser(_: void, smith: *std.testing.Smith) !void {
     @disableInstrumentation();
     const gpa = std.testing.allocator;
-    // const io = std.testing.io;
-
-    // const filename = "main.log";
-    // const logFile = try std.Io.Dir.cwd().createFile(io, filename, .{ .truncate = false });
-    // var logBuffer: [1024]u8 = undefined;
-    // var fileWriter = logFile.writer(io, &logBuffer);
-    // const fileLength = try logFile.length(io);
-    // try fileWriter.seekTo(fileLength);
-    // const writer = &fileWriter.interface;
 
     var stderr_file_writer = std.Io.Writer.Discarding.init(&.{});
     const stderr_writer = &stderr_file_writer.writer;
@@ -253,21 +256,84 @@ fn fuzzTestOneScannerAndParser(_: void, smith: *std.testing.Smith) !void {
     _ = exprId;
 }
 
-test "fuzz scanner and parser" {
-    // std.testing.log_level = .debug;
-    try std.testing.fuzz({}, fuzzTestOneScannerAndParser, .{});
+fn fuzzTestOneParserAndPrettyPrinter(_: void, smith: *std.testing.Smith) !void {
+    @disableInstrumentation();
+    const gpa = std.testing.allocator;
+
+    // var stderr_file_writer = std.Io.File.stderr().writer(std.testing.io, &.{});
+    // const stderr_writer = &stderr_file_writer.interface;
+    var stderr_file_writer = std.Io.Writer.Discarding.init(&.{});
+    const stderr_writer = &stderr_file_writer.writer;
+
+    const reporter = Reporter.init(stderr_writer);
+
+    const len = smith.valueRangeAtMost(u32, 0, 150);
+    const code = try gpa.alloc(u8, len);
+    defer gpa.free(code);
+    _ = smith.slice(code);
+
+    var scanner = try Scanner.init(gpa, code);
+    defer scanner.deinit(gpa);
+
+    try stderr_writer.print("{s}", .{code});
+    scanner.scanTokens(gpa, reporter) catch |err| if (err != Scanner.ScanTokensError.CompileError) return err;
+    try scanner.printTokens(stderr_writer);
+
+    var parser = try Parser.init(gpa, code, scanner.tokens.items);
+    defer parser.deinit(gpa);
+
+    const exprId = parser.parse(gpa, reporter) catch |err| switch (err) {
+        Scanner.ScanTokensError.CompileError => return,
+        else => return err,
+    };
+
+    var prettyPrinterWriterBuffer: [1024]u8 = undefined;
+    var prettyPrinterWriterOwner = std.Io.Writer.fixed(&prettyPrinterWriterBuffer);
+    const prettyPrinterWriter = &prettyPrinterWriterOwner;
+    // var prettyPrinterFileWriter = std.Io.File.stderr().writer(std.testing.io, &prettyPrinterWriterBuffer);
+    // const prettyPrinterWriter = &prettyPrinterFileWriter.interface;
+
+    const prettyPrinter = PrettyPrinter.init(parser.expressions.items);
+    try prettyPrinter.print(prettyPrinterWriter, exprId);
+    const prettyCode: []const u8 = prettyPrinterWriterBuffer[0..prettyPrinterWriter.end];
+
+    var prettyScanner = try Scanner.init(gpa, prettyCode);
+    defer prettyScanner.deinit(gpa);
+    try prettyScanner.scanTokens(gpa, reporter);
+    // try std.testing.expectEqualSlices(Scanner.Token, scanner.tokens.items, newScanner.tokens.items);
+
+    var prettyParser = try Parser.init(gpa, prettyCode, prettyScanner.tokens.items);
+    defer prettyParser.deinit(gpa);
+    const prettyExprId = try prettyParser.parse(gpa, reporter);
+
+    // try std.testing.expectEqualSlices(Expression, parser.expressions.items, prettyParser.expressions.items);
+
+    var prettyPrettyPrinterWriterBuffer: [1024]u8 = undefined;
+    var prettyPrettyPrinterWriter = std.Io.Writer.fixed(&prettyPrettyPrinterWriterBuffer);
+
+    const prettyPrettyPrinter = PrettyPrinter.init(prettyParser.expressions.items);
+    try prettyPrettyPrinter.print(&prettyPrettyPrinterWriter, prettyExprId);
+
+    const prettyPrettyCode = prettyPrettyPrinterWriterBuffer[0..prettyPrettyPrinterWriter.end];
+    try std.testing.expectEqualStrings(prettyCode, prettyPrettyCode);
+}
+
+// test "fuzz scanner and parser" {
+//     try std.testing.fuzz({}, fuzzTestOneScannerAndParser, .{});
+// }
+
+test "fuzz scanner and parser and pretty printer" {
+    try std.testing.fuzz({}, fuzzTestOneParserAndPrettyPrinter, .{});
 }
 
 test "test crashed parser fuzz" {
     @disableInstrumentation();
-    // std.testing.log_level = .debug;
-    // if (!@import("config").testCrashedFuzz) return;
-    if (@import("builtin").fuzz) return;
     if (@import("builtin").fuzz) return;
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     const crash = std.Io.Dir.cwd().readFileAlloc(io, ".zig-cache/f/crash", gpa, std.Io.Limit.unlimited) catch return;
     defer gpa.free(crash);
     var smith = std.testing.Smith{ .in = crash };
-    try fuzzTestOneScannerAndParser({}, &smith);
+    // try fuzzTestOneScannerAndParser({}, &smith);
+    try fuzzTestOneParserAndPrettyPrinter({}, &smith);
 }

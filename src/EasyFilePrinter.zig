@@ -1,28 +1,5 @@
 const std = @import("std");
 
-var logBuffer: [1024]u8 = undefined;
-var fileWriter: std.Io.File.Writer = undefined;
-var writer: *std.Io.Writer = undefined;
-
-pub fn init(io: std.Io) !void {
-    // var fileNameBuffer: [16]u8 = undefined;
-    // const filename = try std.fmt.bufPrint(&fileNameBuffer, "{d}.log", .{std.os.linux.getpid()});
-    const filename = "main.log";
-    const file = try std.Io.Dir.cwd().createFile(io, filename, .{ .truncate = false });
-    fileWriter = file.writer(io, &logBuffer);
-    const fileLength = try file.length(io);
-    try fileWriter.seekTo(fileLength);
-    writer = &fileWriter.interface;
-}
-
-/// must call Logger.init before logging anything
-pub fn logFn(comptime level: std.log.Level, comptime scope: @EnumLiteral(), comptime format: []const u8, args: anytype) void {
-    writer.print("{s}", .{level.asText()}) catch {};
-    if (scope != .default) writer.print("({t})", .{scope}) catch {};
-    writer.print(": " ++ format ++ "\n", args) catch {};
-    writer.flush() catch unreachable;
-}
-
 pub const Printer = struct {
     logBuffer: [1024]u8 = undefined,
     file: std.Io.File = undefined,

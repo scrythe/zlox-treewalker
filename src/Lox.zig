@@ -3,7 +3,7 @@ const Reporter = @import("Reporter.zig");
 const Allocator = std.mem.Allocator;
 const Scanner = @import("Scanner.zig");
 const Parser = @import("Parser.zig");
-const AstPrinter = @import("AstPrinter.zig");
+const PrettyPrinter = @import("PrettyPrinter.zig");
 
 pub const Error = error{CompileError};
 
@@ -41,7 +41,7 @@ pub fn run(gpa: Allocator, stdout_writer: *std.Io.Writer, reporter: Reporter, co
     var parser = try Parser.init(gpa, code, scanner.tokens.items);
     defer parser.deinit(gpa);
     if (parser.parse(gpa, reporter)) |exprId| {
-        const astPrinter = AstPrinter.init(parser.expressions.items);
-        try astPrinter.print(stdout_writer, exprId);
+        const prettyPrinter = PrettyPrinter.init(parser.expressions.items);
+        try prettyPrinter.print(stdout_writer, exprId);
     } else |_| {}
 }

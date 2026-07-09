@@ -35,7 +35,7 @@ pub fn printExpression(self: *const AstPrinter, stdout_writer: *std.Io.Writer, e
                 .None => std.debug.print("None", .{}),
                 .Bool => |boolVal| try stdout_writer.print("{}", .{boolVal}),
                 .Number => |number| try stdout_writer.print("{d}", .{number}),
-                .String => |string| try stdout_writer.print("{s}", .{string}),
+                .String => |string| try stdout_writer.print("\"{s}\"", .{string}),
             }
         },
         .UnaryExpr => |unaryExpr| {
