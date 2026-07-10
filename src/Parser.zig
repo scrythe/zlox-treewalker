@@ -42,15 +42,15 @@ fn parseExpression(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError
 /// equality -> comparison ( ( "!=" | "==" ) comparison )*
 fn parseEquality(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
     var comparisonExprId = try self.parseComparison(gpa, reporter);
-    var tokenType = self.tokens[self.current].tokenType;
-    while (equalsTokenTypes(tokenType, &.{ .BangEqual, .EqualEqual })) {
+    var token = self.tokens[self.current];
+    while (equalsTokenTypes(token.tokenType, &.{ .BangEqual, .EqualEqual })) {
         self.current += 1;
         const rightComparisonExprId = try self.parseComparison(gpa, reporter);
-        const equalityExprValue: Expressions.BinaryExpr = .{ .left = comparisonExprId, .operator = tokenType, .right = rightComparisonExprId };
+        const equalityExprValue = Expressions.BinaryExpr.init(comparisonExprId, token.tokenType, rightComparisonExprId, token.line);
         const equalityExpr = Expression{ .BinaryExpr = equalityExprValue };
         comparisonExprId = try self.addExpression(gpa, equalityExpr);
 
-        tokenType = self.tokens[self.current].tokenType;
+        token = self.tokens[self.current];
     }
     return comparisonExprId;
 }
@@ -58,15 +58,15 @@ fn parseEquality(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!E
 /// comparison -> term ( ( ">" | ">=" | "<" | "<=" ) term )*
 fn parseComparison(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
     var termExprId = try self.parseTerm(gpa, reporter);
-    var tokenType = self.tokens[self.current].tokenType;
-    while (equalsTokenTypes(tokenType, &.{ .Less, .LessEqual, .Greater, .GreaterEqual })) {
+    var token = self.tokens[self.current];
+    while (equalsTokenTypes(token.tokenType, &.{ .Less, .LessEqual, .Greater, .GreaterEqual })) {
         self.current += 1;
         const rightTermExprId = try self.parseTerm(gpa, reporter);
-        const comparisonExprValue: Expressions.BinaryExpr = .{ .left = termExprId, .operator = tokenType, .right = rightTermExprId };
+        const comparisonExprValue = Expressions.BinaryExpr.init(termExprId, token.tokenType, rightTermExprId, token.line);
         const comparisonExpr = Expression{ .BinaryExpr = comparisonExprValue };
         termExprId = try self.addExpression(gpa, comparisonExpr);
 
-        tokenType = self.tokens[self.current].tokenType;
+        token = self.tokens[self.current];
     }
     return termExprId;
 }
@@ -74,15 +74,15 @@ fn parseComparison(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError
 /// term -> factor ( ( "+" | "-" ) factor )*
 fn parseTerm(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
     var factorExprId = try self.parseFactor(gpa, reporter);
-    var tokenType = self.tokens[self.current].tokenType;
-    while (equalsTokenTypes(tokenType, &.{ .Plus, .Minus })) {
+    var token = self.tokens[self.current];
+    while (equalsTokenTypes(token.tokenType, &.{ .Plus, .Minus })) {
         self.current += 1;
         const rightFactorExprId = try self.parseFactor(gpa, reporter);
-        const termExprValue: Expressions.BinaryExpr = .{ .left = factorExprId, .operator = tokenType, .right = rightFactorExprId };
+        const termExprValue = Expressions.BinaryExpr.init(factorExprId, token.tokenType, rightFactorExprId, token.line);
         const termExpr = Expression{ .BinaryExpr = termExprValue };
         factorExprId = try self.addExpression(gpa, termExpr);
 
-        tokenType = self.tokens[self.current].tokenType;
+        token = self.tokens[self.current];
     }
     return factorExprId;
 }
@@ -90,15 +90,15 @@ fn parseTerm(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprI
 /// factor -> unary ( ( "*" | "/" ) unary )*
 fn parseFactor(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
     var unaryExprId = try self.parseUnary(gpa, reporter);
-    var tokenType = self.tokens[self.current].tokenType;
-    while (equalsTokenTypes(tokenType, &.{ .Star, .Slash })) {
+    var token = self.tokens[self.current];
+    while (equalsTokenTypes(token.tokenType, &.{ .Star, .Slash })) {
         self.current += 1;
         const rightUnaryExprId = try self.parseUnary(gpa, reporter);
-        const factorExprValue: Expressions.BinaryExpr = .{ .left = unaryExprId, .operator = tokenType, .right = rightUnaryExprId };
+        const factorExprValue = Expressions.BinaryExpr.init(unaryExprId, token.tokenType, rightUnaryExprId, token.line);
         const factorExpr = Expression{ .BinaryExpr = factorExprValue };
         unaryExprId = try self.addExpression(gpa, factorExpr);
 
-        tokenType = self.tokens[self.current].tokenType;
+        token = self.tokens[self.current];
     }
     return unaryExprId;
 }

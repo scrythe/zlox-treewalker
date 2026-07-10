@@ -6,7 +6,7 @@ const Parser = @import("Parser.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Interpreter = @import("Interpreter.zig");
 
-pub const Error = error{CompileError};
+pub const Error = error{ CompileError, RuntimeError };
 
 pub fn runFile(gpa: Allocator, io: std.Io, stdout_writer: *std.Io.Writer, reporter: Reporter, filename: []const u8) !void {
     var buffer: [1024]u8 = undefined;
@@ -33,12 +33,12 @@ pub fn run(gpa: Allocator, stdout_writer: *std.Io.Writer, reporter: Reporter, co
     _ = stdout_writer; // autofix
     var scanner = try Scanner.init(gpa, code);
     defer scanner.deinit(gpa);
-    var hasError = false;
+    var hasScanError = false;
     scanner.scanTokens(gpa, reporter) catch |err| {
         if (err != Error.CompileError) {
             return err;
         }
-        hasError = true;
+        hasScanError = true;
     };
     var parser = try Parser.init(gpa, code, scanner.tokens.items);
     defer parser.deinit(gpa);
@@ -49,7 +49,7 @@ pub fn run(gpa: Allocator, stdout_writer: *std.Io.Writer, reporter: Reporter, co
         }
         return;
     };
-    if (hasError) {
+    if (hasScanError) {
         return;
     }
 
@@ -57,5 +57,5 @@ pub fn run(gpa: Allocator, stdout_writer: *std.Io.Writer, reporter: Reporter, co
     // try prettyPrinter.print(stdout_writer, exprId);
 
     var interpreter = Interpreter.init(parser.expressions.items);
-    interpreter.interpret(exprId);
+    try interpreter.interpret(reporter, exprId);
 }

@@ -21,3 +21,8 @@ pub fn reportWithContextAtEnd(self: Reporter, line: u32, comptime message: []con
     try self.stderr_writer.print("[line {d}] Error at end: {s}\n", .{ line, message });
     try self.stderr_writer.flush();
 }
+
+pub fn reportRuntimeError(self: Reporter, errorMessage: []const u8, line: u32) std.Io.Writer.Error!void {
+    try self.stderr_writer.print("{s}\n[line {d}]\n", .{ errorMessage, line });
+    try self.stderr_writer.flush();
+}
