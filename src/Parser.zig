@@ -106,11 +106,11 @@ fn parseFactor(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!Exp
 /// unary -> ( "!" | "-" ) unary
 ///         | primary
 fn parseUnary(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
-    const tokenType = self.tokens[self.current].tokenType;
-    if (equalsTokenTypes(tokenType, &.{ TokenType.Bang, TokenType.Minus })) {
+    const token = self.tokens[self.current];
+    if (equalsTokenTypes(token.tokenType, &.{ TokenType.Bang, TokenType.Minus })) {
         self.current += 1;
         const rightUnaryExprId = try self.parseUnary(gpa, reporter);
-        const totalUnaryExprValue: Expressions.UnaryExpr = .{ .operator = tokenType, .right = rightUnaryExprId };
+        const totalUnaryExprValue = Expressions.UnaryExpr.init(token.tokenType, rightUnaryExprId, token.line);
         const totalUnaryExpr = Expression{ .UnaryExpr = totalUnaryExprValue };
         return self.addExpression(gpa, totalUnaryExpr);
     }
@@ -170,7 +170,7 @@ fn parsePrimary(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!Ex
                 return Lox.Error.CompileError;
             }
             self.current += 1;
-            break :blk Expression{ .GroupingExpr = .{ .expression = exprId } };
+            break :blk Expression{ .GroupingExpr = .{ .exprId = exprId } };
         },
         else => {
             if (self.current < self.tokens.len) {

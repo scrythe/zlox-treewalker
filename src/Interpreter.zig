@@ -4,6 +4,8 @@ const Expression = Expressions.Expression;
 const Reporter = @import("Reporter.zig");
 const Lox = @import("Lox.zig");
 
+const LiteralValue = Expressions.LiteralValue;
+
 expressions: []const Expression,
 const Interpreter = @This();
 
@@ -30,71 +32,97 @@ pub fn interpret(self: *Interpreter, reporter: Reporter, exprId: Expressions.Exp
     }
 }
 
-pub fn evaluate(self: *Interpreter, reporter: Reporter, exprId: Expressions.ExprId) Error!Expressions.LiteralValue {
+pub fn evaluate(self: *Interpreter, reporter: Reporter, exprId: Expressions.ExprId) Error!LiteralValue {
     return switch (self.expressions[exprId]) {
         .BinaryExpr => |binaryExpr| {
             const left = try self.evaluate(reporter, binaryExpr.left);
             const right = try self.evaluate(reporter, binaryExpr.right);
             switch (binaryExpr.operator) {
-                .BangEqual => {
-                    // const leftExpr = self.evaluate(binaryExpr.left);
-                    // const rightExpr = self.evaluate(binaryExpr.right);
+                .BangEqual => return LiteralValue{ .Bool = !equals(left, right) },
+                .EqualEqual => return LiteralValue{ .Bool = equals(left, right) },
+                .Less => {
+                    try checkNumberOperators(reporter, left, right, binaryExpr.line);
+                    return LiteralValue{ .Bool = left.Number < right.Number };
                 },
-                .EqualEqual => {},
-                .Less => {},
-                .LessEqual => {},
-                .Greater => {},
-                .GreaterEqual => {},
+                .LessEqual => {
+                    try checkNumberOperators(reporter, left, right, binaryExpr.line);
+                    return LiteralValue{ .Bool = left.Number <= right.Number };
+                },
+                .Greater => {
+                    try checkNumberOperators(reporter, left, right, binaryExpr.line);
+                    return LiteralValue{ .Bool = left.Number > right.Number };
+                },
+                .GreaterEqual => {
+                    try checkNumberOperators(reporter, left, right, binaryExpr.line);
+                    return LiteralValue{ .Bool = left.Number >= right.Number };
+                },
                 .Plus => {
                     if (left == .Number and right == .Number) {
-                        return Expressions.LiteralValue{ .Number = left.Number + right.Number };
+                        return LiteralValue{ .Number = left.Number + right.Number };
                     } else if (left == .String and right == .String) {
-                        return Expressions.LiteralValue{ .String = left.String }; // TODO
+                        return LiteralValue{ .String = left.String }; // TODO:
                     }
-                    try reporter.reportRuntimeError("Operands must be numbers", binaryExpr.line);
+                    try reporter.reportRuntimeError("Operands must be two numbers or two strings", binaryExpr.line);
                     return Error.RuntimeError;
                 },
                 .Minus => {
-                    if (left != .Number or right != .Number) {
-                        try reporter.reportRuntimeError("Operands must be numbers", binaryExpr.line);
-                        return Error.RuntimeError;
-                    }
-                    return Expressions.LiteralValue{ .Number = left.Number - right.Number };
+                    try checkNumberOperators(reporter, left, right, binaryExpr.line);
+                    return LiteralValue{ .Number = left.Number - right.Number };
                 },
                 .Star => {
-                    if (left != .Number or right != .Number) {
-                        try reporter.reportRuntimeError("Operands must be numbers", binaryExpr.line);
-                        return Error.RuntimeError;
-                    }
-                    return Expressions.LiteralValue{ .Number = left.Number * right.Number };
+                    try checkNumberOperators(reporter, left, right, binaryExpr.line);
+                    return LiteralValue{ .Number = left.Number * right.Number };
                 },
                 .Slash => {
-                    if (left != .Number or right != .Number) {
-                        try reporter.reportRuntimeError("Operands must be numbers", binaryExpr.line);
-                        return Error.RuntimeError;
-                    }
-                    return Expressions.LiteralValue{ .Number = left.Number / right.Number };
+                    try checkNumberOperators(reporter, left, right, binaryExpr.line);
+                    return LiteralValue{ .Number = left.Number / right.Number };
                 },
-
                 else => unreachable,
             }
-            unreachable;
         },
         .GroupingExpr => |groupingExpr| {
-            _ = groupingExpr; // autofix
-            unreachable;
+            return self.evaluate(reporter, groupingExpr.exprId);
         },
         .LiteralExpr => |literalExpr| literalExpr.value,
         .UnaryExpr => |unaryExpr| {
-            _ = unaryExpr; // autofix
-            unreachable;
+            const right = try self.evaluate(reporter, unaryExpr.right);
+            switch (unaryExpr.operator) {
+                .Bang => return LiteralValue{ .Bool = !isTruthy(right) },
+                .Minus => {
+                    if (right != .Number) {
+                        try reporter.reportRuntimeError("Operand must be a number", unaryExpr.line);
+                        return Error.RuntimeError;
+                    }
+                    return LiteralValue{ .Number = -right.Number };
+                },
+                else => unreachable,
+            }
         },
     };
 }
 
-pub fn checkNumberOperators(left: Expressions.LiteralValue, right: Expressions.LiteralValue) struct { f32, f32 } {
-    if (left == .Number and right == .Number) {
-        return .{ left.Number, right.Number };
+fn checkNumberOperators(reporter: Reporter, left: LiteralValue, right: LiteralValue, line: u32) Error!void {
+    if (left == .Number and right == .Number) return;
+    try reporter.reportRuntimeError("Operands must be numbers", line);
+    return Error.RuntimeError;
+}
+
+const LiteralValueTagType = @typeInfo(LiteralValue).@"union".tag_type.?;
+fn equals(left: LiteralValue, right: LiteralValue) bool {
+    if (@as(LiteralValueTagType, left) != @as(LiteralValueTagType, right)) return false;
+    switch (left) {
+        .Number => return left.Number == right.Number,
+        .String => return std.mem.eql(u8, left.String, right.String),
+        .Bool => return left.Bool == right.Bool,
+        .None => return left.None == right.None,
     }
     unreachable;
+}
+
+fn isTruthy(literalValue: LiteralValue) bool {
+    return switch (literalValue) {
+        .None => false,
+        .Bool => |val| val,
+        else => true,
+    };
 }
