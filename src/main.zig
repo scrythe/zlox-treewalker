@@ -17,14 +17,15 @@ pub fn main(init: std.process.Init) !void {
     const stderr_writer = &stderr_file_writer.interface;
     const reporter = Reporter.init(stderr_writer);
 
-    const args = init.minimal.args;
+    const args = try init.minimal.args.toSlice(gpa);
+    defer gpa.free(args); // maybe error? no arena
 
-    if (args.vector.len > 2) {
+    if (args.len > 2) {
         try stderr_writer.print("Usage: jlox [script]\n", .{});
         try stderr_writer.flush();
         std.process.exit(64);
-    } else if (args.vector.len == 2) {
-        const filename: []const u8 = std.mem.span(args.vector[1]);
+    } else if (args.len == 2) {
+        const filename = args[1];
         try Lox.runFile(gpa, io, stdout_writer, reporter, filename);
     } else {
         var stdin_buffer: [1024]u8 = undefined;

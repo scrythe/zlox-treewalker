@@ -1,34 +1,55 @@
 const std = @import("std");
 const Expressions = @import("Expressions.zig");
 const Expression = Expressions.Expression;
+const Statements = @import("Statements.zig");
+const Statement = Statements.Statement;
 const Reporter = @import("Reporter.zig");
 const Lox = @import("Lox.zig");
 
 const LiteralValue = Expressions.LiteralValue;
 
 expressions: []const Expression,
+statements: []const Statement,
 const Interpreter = @This();
 
 const Error = Lox.Error || std.Io.Writer.Error;
 
-pub fn init(expresssions: []const Expression) Interpreter {
-    return Interpreter{ .expressions = expresssions };
+pub fn init(expresssions: []const Expression, statements: []const Statement) Interpreter {
+    return Interpreter{
+        .expressions = expresssions,
+        .statements = statements,
+    };
 }
 
-pub fn interpret(self: *Interpreter, reporter: Reporter, exprId: Expressions.ExprId) !void {
-    const value = self.evaluate(reporter, exprId) catch |err| {
-        switch (err) {
-            Error.RuntimeError => {
-                return;
-            },
-            else => return err,
-        }
-    };
-    switch (value) {
-        .None => std.debug.print("None\n", .{}),
-        .Bool => |boolVal| std.debug.print("{}\n", .{boolVal}),
-        .Number => |number| std.debug.print("{d}\n", .{number}),
-        .String => |string| std.debug.print("\"{s}\"\n", .{string}),
+pub fn interpret(self: *Interpreter, interpreterPrinter: *std.Io.Writer, reporter: Reporter) !void {
+    for (self.statements) |statement| {
+        self.execute(interpreterPrinter, reporter, statement) catch |err| {
+            switch (err) {
+                Error.RuntimeError => {
+                    return;
+                },
+                else => return err,
+            }
+        };
+    }
+}
+
+pub fn execute(self: *Interpreter, interpreterPrinter: *std.Io.Writer, reporter: Reporter, statement: Statement) Error!void {
+    switch (statement) {
+        .PrintStmt => |printStmt| {
+            const value = try self.evaluate(reporter, printStmt.exprId);
+
+            switch (value) {
+                .None => try interpreterPrinter.print("None\n", .{}),
+                .Bool => |boolVal| try interpreterPrinter.print("{}\n", .{boolVal}),
+                .Number => |number| try interpreterPrinter.print("{d}\n", .{number}),
+                .String => |string| try interpreterPrinter.print("\"{s}\"\n", .{string}),
+            }
+            try interpreterPrinter.flush();
+        },
+        .ExpressionStmt => |expressionStmt| {
+            _ = try self.evaluate(reporter, expressionStmt.exprId);
+        },
     }
 }
 

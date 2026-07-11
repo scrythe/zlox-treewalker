@@ -30,7 +30,6 @@ pub fn runPrompt(gpa: Allocator, stdout_writer: *std.Io.Writer, stdin_reader: *s
 }
 
 pub fn run(gpa: Allocator, stdout_writer: *std.Io.Writer, reporter: Reporter, code: []const u8) !void {
-    _ = stdout_writer; // autofix
     var scanner = try Scanner.init(gpa, code);
     defer scanner.deinit(gpa);
     var hasScanError = false;
@@ -43,7 +42,9 @@ pub fn run(gpa: Allocator, stdout_writer: *std.Io.Writer, reporter: Reporter, co
     var parser = try Parser.init(gpa, code, scanner.tokens.items);
     defer parser.deinit(gpa);
 
-    const exprId = parser.parse(gpa, reporter) catch |err| {
+    // try scanner.printTokens(stdout_writer);
+
+    parser.parse(gpa, reporter) catch |err| {
         if (err != Error.CompileError) {
             return err;
         }
@@ -56,6 +57,6 @@ pub fn run(gpa: Allocator, stdout_writer: *std.Io.Writer, reporter: Reporter, co
     // const prettyPrinter = PrettyPrinter.init(parser.expressions.items);
     // try prettyPrinter.print(stdout_writer, exprId);
 
-    var interpreter = Interpreter.init(parser.expressions.items);
-    try interpreter.interpret(reporter, exprId);
+    var interpreter = Interpreter.init(parser.expressions.items, parser.statements.items);
+    try interpreter.interpret(stdout_writer, reporter);
 }

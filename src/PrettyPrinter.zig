@@ -27,7 +27,7 @@ pub fn printExpression(self: *const AstPrinter, stdout_writer: *std.Io.Writer, e
         },
         .GroupingExpr => |groupingExpr| {
             try stdout_writer.print("(", .{});
-            try self.printExpression(stdout_writer, groupingExpr.expression);
+            try self.printExpression(stdout_writer, groupingExpr.exprId);
             try stdout_writer.print(")", .{});
         },
         .LiteralExpr => |literalExpr| {

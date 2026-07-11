@@ -6,6 +6,9 @@ const Reporter = @import("Reporter.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 
 const Expression = Expressions.Expression;
+const Statements = @import("Statements.zig");
+const Statement = Statements.Statement;
+const StmtId = Statements.StmtId;
 const LiteralValue = Expressions.LiteralValue;
 const Allocator = std.mem.Allocator;
 const ExprId = Expressions.ExprId;
@@ -20,18 +23,80 @@ code: []const u8,
 tokens: []const Scanner.Token,
 current: u32,
 expressions: std.ArrayList(Expression),
+statements: std.ArrayList(Statement),
 
 pub fn init(gpa: Allocator, code: []const u8, tokens: []const Scanner.Token) ParseError!Parser {
     const expressions = try std.ArrayList(Expression).initCapacity(gpa, tokens.len);
-    return Parser{ .code = code, .tokens = tokens, .current = 0, .expressions = expressions };
+    const statements = try std.ArrayList(Statement).initCapacity(gpa, tokens.len);
+    return Parser{
+        .code = code,
+        .tokens = tokens,
+        .current = 0,
+        .expressions = expressions,
+        .statements = statements,
+    };
 }
 
 pub fn deinit(self: *Parser, gpa: Allocator) void {
     self.expressions.deinit(gpa);
+    self.statements.deinit(gpa);
 }
 
-pub fn parse(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
-    return try self.parseExpression(gpa, reporter);
+pub fn parse(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!void {
+    var tokenType = self.tokens[self.current].tokenType;
+    while (tokenType != .Eof) {
+        try self.parseStatement(gpa, reporter);
+        if (self.current >= self.tokens.len) break;
+        tokenType = self.tokens[self.current].tokenType;
+    }
+}
+
+/// statement -> exprStmt | printStmt
+fn parseStatement(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!void {
+    // could maybe combine some logic from parseExprStmt and parsePrintStmt but will
+    // do later if still worth it
+    const tokenType = self.tokens[self.current].tokenType;
+    if (tokenType == .Print) {
+        self.current += 1;
+        try self.parsePrintStmt(gpa, reporter);
+    } else {
+        try self.parseExprStmt(gpa, reporter);
+    }
+}
+
+fn parseExprStmt(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!void {
+    const exprId = try self.parseExpression(gpa, reporter);
+    const exprStmtValue = Statements.ExpressionStmt{ .exprId = exprId };
+    const exprStmt = Statement{ .ExpressionStmt = exprStmtValue };
+    try self.statements.append(gpa, exprStmt);
+    const token = self.tokens[self.current];
+    self.current += 1;
+    if (token.tokenType != .Semicolon) {
+        if (self.current >= self.tokens.len) {
+            try reporter.reportWithContextAtEnd(token.line, "Expect ';' after expression.");
+        } else {
+            const tokenLexeme = try self.getLexemeText(token, self.tokens[self.current + 1]);
+            try reporter.reportWithContext(token.line, tokenLexeme, "Expect ';' after expression.");
+        }
+    }
+}
+
+/// printStmt -> "print" expression ";"
+fn parsePrintStmt(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!void {
+    const exprId = try self.parseExpression(gpa, reporter);
+    const printStmtValue = Statements.PrintStmt{ .exprId = exprId };
+    const printStmt = Statement{ .PrintStmt = printStmtValue };
+    try self.statements.append(gpa, printStmt);
+    const token = self.tokens[self.current];
+    self.current += 1;
+    if (token.tokenType != .Semicolon) {
+        if (self.current >= self.tokens.len) {
+            try reporter.reportWithContextAtEnd(token.line, "Expect ';' after value.");
+        } else {
+            const tokenLexeme = try self.getLexemeText(token, self.tokens[self.current + 1]);
+            try reporter.reportWithContext(token.line, tokenLexeme, "Expect ';' after value.");
+        }
+    }
 }
 
 /// expression -> equality
@@ -189,6 +254,12 @@ fn parsePrimary(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!Ex
 fn addExpression(self: *Parser, gpa: Allocator, expr: Expression) Allocator.Error!ExprId {
     const id = self.expressions.items.len;
     try self.expressions.append(gpa, expr);
+    return @intCast(id);
+}
+
+fn addStatement(self: *Parser, gpa: Allocator, stmt: Statement) Allocator.Error!StmtId {
+    const id = self.statements.items.len;
+    try self.statements.append(gpa, stmt);
     return @intCast(id);
 }
 

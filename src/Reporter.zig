@@ -12,8 +12,8 @@ pub fn report(self: Reporter, line: u32, comptime message: []const u8) std.Io.Wr
     try self.stderr_writer.flush();
 }
 
-pub fn reportWithContext(self: Reporter, line: u32, tokenLexem: []const u8, comptime message: []const u8) std.Io.Writer.Error!void {
-    try self.stderr_writer.print("[line {d}] Error at '{s}': {s}\n", .{ line, tokenLexem, message });
+pub fn reportWithContext(self: Reporter, line: u32, tokenLexeme: []const u8, comptime message: []const u8) std.Io.Writer.Error!void {
+    try self.stderr_writer.print("[line {d}] Error at '{s}': {s}\n", .{ line, tokenLexeme, message });
     try self.stderr_writer.flush();
 }
 
