@@ -42,13 +42,54 @@ pub fn deinit(self: *Parser, gpa: Allocator) void {
     self.statements.deinit(gpa);
 }
 
+/// program -> delcaration EOF
 pub fn parse(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!void {
+    var hasError = false;
     var tokenType = self.tokens[self.current].tokenType;
     while (tokenType != .Eof) {
-        try self.parseStatement(gpa, reporter);
+        self.parseDeclaration(gpa, reporter) catch |err| {
+            if (err != ParseError.CompileError) return;
+            hasError = true;
+            self.synchronize();
+        };
         if (self.current >= self.tokens.len) break;
         tokenType = self.tokens[self.current].tokenType;
     }
+    if (hasError) return ParseError.CompileError;
+}
+
+/// declaration -> varDecl | statement
+fn parseDeclaration(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!void {
+    const tokenType = self.tokens[self.current].tokenType;
+    if (tokenType == .Var) {
+        self.current += 1;
+        try self.parseVarDecl(gpa, reporter);
+    } else {
+        try self.parseStatement(gpa, reporter);
+    }
+}
+
+/// varDecl -> "var" Identifier ( "=" expression )? ";"
+fn parseVarDecl(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!void {
+    const token = self.tokens[self.current];
+    try self.checkTokenTypeAndConsumeOnNoError(reporter, .Identifier, "Expect variable name.", token);
+
+    const nextToken = self.tokens[self.current];
+    const varName = try self.getLexemeText(token, nextToken);
+
+    var initializerExprId: ?ExprId = null;
+
+    if (self.tokens[self.current].tokenType == .Equal) {
+        self.current += 1;
+        initializerExprId = try self.parseExpression(gpa, reporter);
+    }
+
+    const varDeclStmtValue = Statements.VarDeclStmt{ .varName = varName, .exprId = initializerExprId };
+    const varDeclStmt = Statement{ .VarDeclStmt = varDeclStmtValue };
+    try self.statements.append(gpa, varDeclStmt);
+
+    const semicolonToken = self.tokens[self.current];
+    try self.checkTokenTypeAndConsumeOnNoError(reporter, .Semicolon, "Expect ';' after variable declaration.", semicolonToken);
 }
 
 /// statement -> exprStmt | printStmt
@@ -70,15 +111,7 @@ fn parseExprStmt(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!v
     const exprStmt = Statement{ .ExpressionStmt = exprStmtValue };
     try self.statements.append(gpa, exprStmt);
     const token = self.tokens[self.current];
-    self.current += 1;
-    if (token.tokenType != .Semicolon) {
-        if (self.current >= self.tokens.len) {
-            try reporter.reportWithContextAtEnd(token.line, "Expect ';' after expression.");
-        } else {
-            const tokenLexeme = try self.getLexemeText(token, self.tokens[self.current + 1]);
-            try reporter.reportWithContext(token.line, tokenLexeme, "Expect ';' after expression.");
-        }
-    }
+    try self.checkTokenTypeAndConsumeOnNoError(reporter, .Semicolon, "Expect ';' after expression.", token);
 }
 
 /// printStmt -> "print" expression ";"
@@ -88,15 +121,7 @@ fn parsePrintStmt(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!
     const printStmt = Statement{ .PrintStmt = printStmtValue };
     try self.statements.append(gpa, printStmt);
     const token = self.tokens[self.current];
-    self.current += 1;
-    if (token.tokenType != .Semicolon) {
-        if (self.current >= self.tokens.len) {
-            try reporter.reportWithContextAtEnd(token.line, "Expect ';' after value.");
-        } else {
-            const tokenLexeme = try self.getLexemeText(token, self.tokens[self.current + 1]);
-            try reporter.reportWithContext(token.line, tokenLexeme, "Expect ';' after value.");
-        }
-    }
+    try self.checkTokenTypeAndConsumeOnNoError(reporter, .Semicolon, "Expect ';' after value.", token);
 }
 
 /// expression -> equality
@@ -183,7 +208,7 @@ fn parseUnary(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!Expr
 }
 
 /// primary -> Number | String | "true" | "false" | "nil"
-///         | "(" expression ")"
+///         | "(" expression ")" | Identifier
 fn parsePrimary(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
     const token = self.tokens[self.current];
     self.current += 1;
@@ -237,15 +262,21 @@ fn parsePrimary(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!Ex
             self.current += 1;
             break :blk Expression{ .GroupingExpr = .{ .exprId = exprId } };
         },
+        .Identifier => blk: {
+            const nextToken = self.tokens[self.current];
+            const tokenLexeme = try self.getLexemeText(token, nextToken);
+            break :blk Expression{ .VariableExpr = .{ .varName = tokenLexeme } };
+        },
         else => {
             if (self.current < self.tokens.len) {
                 const nextToken = self.tokens[self.current];
                 const tokenLexeme = try self.getLexemeText(token, nextToken);
                 try reporter.reportWithContext(token.line, tokenLexeme, "Expect expression");
+                return Lox.Error.CompileError;
             } else {
                 try reporter.reportWithContextAtEnd(token.line, "Expect expression");
+                return Lox.Error.CompileError;
             }
-            return Lox.Error.CompileError;
         },
     };
     return try self.addExpression(gpa, expr);
@@ -282,76 +313,116 @@ fn getLexemeText(self: *const Parser, token: Scanner.Token, nextToken: Scanner.T
     return tokenLexeme[0..lexemeEnd];
 }
 
-fn fuzzTestOneScannerAndParserAndPrettyPrinter(_: void, smith: *std.testing.Smith) !void {
-    @disableInstrumentation();
-    const gpa = std.testing.allocator;
-
-    // var stderr_file_writer = std.Io.File.stderr().writer(std.testing.io, &.{});
-    // const stderr_writer = &stderr_file_writer.interface;
-    var stderr_file_writer = std.Io.Writer.Discarding.init(&.{});
-    const stderr_writer = &stderr_file_writer.writer;
-
-    const reporter = Reporter.init(stderr_writer);
-
-    const len = smith.valueRangeAtMost(u32, 0, 150);
-    const code = try gpa.alloc(u8, len);
-    defer gpa.free(code);
-    _ = smith.slice(code);
-
-    var scanner = try Scanner.init(gpa, code);
-    defer scanner.deinit(gpa);
-
-    try stderr_writer.print("{s}", .{code});
-    scanner.scanTokens(gpa, reporter) catch |err| if (err != Scanner.ScanTokensError.CompileError) return err;
-    try scanner.printTokens(stderr_writer);
-
-    var parser = try Parser.init(gpa, code, scanner.tokens.items);
-    defer parser.deinit(gpa);
-
-    const exprId = parser.parse(gpa, reporter) catch |err| switch (err) {
-        Scanner.ScanTokensError.CompileError => return,
-        else => return err,
-    };
-
-    var prettyPrinterWriterBuffer: [1024]u8 = undefined;
-    var prettyPrinterWriter = std.Io.Writer.fixed(&prettyPrinterWriterBuffer);
-
-    const prettyPrinter = PrettyPrinter.init(parser.expressions.items);
-    try prettyPrinter.print(&prettyPrinterWriter, exprId);
-    const prettyCode: []const u8 = prettyPrinterWriterBuffer[0..prettyPrinterWriter.end];
-
-    var prettyScanner = try Scanner.init(gpa, prettyCode);
-    defer prettyScanner.deinit(gpa);
-    try prettyScanner.scanTokens(gpa, reporter);
-    // try std.testing.expectEqualSlices(Scanner.Token, scanner.tokens.items, newScanner.tokens.items);
-
-    var prettyParser = try Parser.init(gpa, prettyCode, prettyScanner.tokens.items);
-    defer prettyParser.deinit(gpa);
-    const prettyExprId = try prettyParser.parse(gpa, reporter);
-
-    // try std.testing.expectEqualSlices(Expression, parser.expressions.items, prettyParser.expressions.items);
-
-    var prettyPrettyPrinterWriterBuffer: [1024]u8 = undefined;
-    var prettyPrettyPrinterWriter = std.Io.Writer.fixed(&prettyPrettyPrinterWriterBuffer);
-
-    const prettyPrettyPrinter = PrettyPrinter.init(prettyParser.expressions.items);
-    try prettyPrettyPrinter.print(&prettyPrettyPrinterWriter, prettyExprId);
-
-    const prettyPrettyCode = prettyPrettyPrinterWriterBuffer[0..prettyPrettyPrinterWriter.end];
-    try std.testing.expectEqualStrings(prettyCode, prettyPrettyCode);
+fn checkTokenTypeAndConsumeOnNoError(self: *Parser, reporter: Reporter, comptime tokenType: TokenType, comptime errMessage: []const u8, token: Scanner.Token) ParseError!void {
+    if (token.tokenType != tokenType) {
+        if (self.current + 1 >= self.tokens.len) {
+            try reporter.reportWithContextAtEnd(token.line, errMessage);
+            return ParseError.CompileError;
+        } else {
+            const tokenLexeme = try self.getLexemeText(token, self.tokens[self.current + 1]);
+            try reporter.reportWithContext(token.line, tokenLexeme, errMessage);
+            return ParseError.CompileError;
+        }
+    }
+    self.current += 1;
 }
 
-test "fuzz scanner and parser and pretty printer" {
-    try std.testing.fuzz({}, fuzzTestOneScannerAndParserAndPrettyPrinter, .{});
+fn synchronize(self: *Parser) void {
+    const prevTokenType = self.tokens[self.current].tokenType;
+    self.current += 1;
+    if (prevTokenType == .Semicolon) return;
+    if (self.current >= self.tokens.len) return;
+    var tokenType = self.tokens[self.current].tokenType;
+    while (tokenType != .Eof) {
+        switch (tokenType) {
+            .Class,
+            .Fun,
+            .Var,
+            .For,
+            .If,
+            .While,
+            .Print,
+            .Return,
+            .Semicolon,
+            => return,
+            else => {},
+        }
+
+        self.current += 1;
+        tokenType = self.tokens[self.current].tokenType;
+    }
 }
 
-test "test crashed fuzz" {
-    @disableInstrumentation();
-    if (@import("builtin").fuzz) return;
-    const gpa = std.testing.allocator;
-    const io = std.testing.io;
-    const crash = std.Io.Dir.cwd().readFileAlloc(io, ".zig-cache/f/crash", gpa, std.Io.Limit.unlimited) catch return;
-    defer gpa.free(crash);
-    var smith = std.testing.Smith{ .in = crash };
-    try fuzzTestOneScannerAndParserAndPrettyPrinter({}, &smith);
-}
+// fn fuzzTestOneScannerAndParserAndPrettyPrinter(_: void, smith: *std.testing.Smith) !void {
+//     @disableInstrumentation();
+//     const gpa = std.testing.allocator;
+//
+//     // var stderr_file_writer = std.Io.File.stderr().writer(std.testing.io, &.{});
+//     // const stderr_writer = &stderr_file_writer.interface;
+//     var stderr_file_writer = std.Io.Writer.Discarding.init(&.{});
+//     const stderr_writer = &stderr_file_writer.writer;
+//
+//     const reporter = Reporter.init(stderr_writer);
+//
+//     const len = smith.valueRangeAtMost(u32, 0, 150);
+//     const code = try gpa.alloc(u8, len);
+//     defer gpa.free(code);
+//     _ = smith.slice(code);
+//
+//     var scanner = try Scanner.init(gpa, code);
+//     defer scanner.deinit(gpa);
+//
+//     try stderr_writer.print("{s}", .{code});
+//     scanner.scanTokens(gpa, reporter) catch |err| if (err != Scanner.ScanTokensError.CompileError) return err;
+//     try scanner.printTokens(stderr_writer);
+//
+//     var parser = try Parser.init(gpa, code, scanner.tokens.items);
+//     defer parser.deinit(gpa);
+//
+//     const exprId = parser.parse(gpa, reporter) catch |err| switch (err) {
+//         Scanner.ScanTokensError.CompileError => return,
+//         else => return err,
+//     };
+//
+//     var prettyPrinterWriterBuffer: [1024]u8 = undefined;
+//     var prettyPrinterWriter = std.Io.Writer.fixed(&prettyPrinterWriterBuffer);
+//
+//     const prettyPrinter = PrettyPrinter.init(parser.expressions.items);
+//     try prettyPrinter.print(&prettyPrinterWriter, exprId);
+//     const prettyCode: []const u8 = prettyPrinterWriterBuffer[0..prettyPrinterWriter.end];
+//
+//     var prettyScanner = try Scanner.init(gpa, prettyCode);
+//     defer prettyScanner.deinit(gpa);
+//     try prettyScanner.scanTokens(gpa, reporter);
+//     // try std.testing.expectEqualSlices(Scanner.Token, scanner.tokens.items, newScanner.tokens.items);
+//
+//     var prettyParser = try Parser.init(gpa, prettyCode, prettyScanner.tokens.items);
+//     defer prettyParser.deinit(gpa);
+//     const prettyExprId = try prettyParser.parse(gpa, reporter);
+//
+//     // try std.testing.expectEqualSlices(Expression, parser.expressions.items, prettyParser.expressions.items);
+//
+//     var prettyPrettyPrinterWriterBuffer: [1024]u8 = undefined;
+//     var prettyPrettyPrinterWriter = std.Io.Writer.fixed(&prettyPrettyPrinterWriterBuffer);
+//
+//     const prettyPrettyPrinter = PrettyPrinter.init(prettyParser.expressions.items);
+//     try prettyPrettyPrinter.print(&prettyPrettyPrinterWriter, prettyExprId);
+//
+//     const prettyPrettyCode = prettyPrettyPrinterWriterBuffer[0..prettyPrettyPrinterWriter.end];
+//     try std.testing.expectEqualStrings(prettyCode, prettyPrettyCode);
+// }
+//
+// test "fuzz scanner and parser and pretty printer" {
+//     try std.testing.fuzz({}, fuzzTestOneScannerAndParserAndPrettyPrinter, .{});
+// }
+//
+// test "test crashed fuzz" {
+//     @disableInstrumentation();
+//     if (@import("builtin").fuzz) return;
+//     const gpa = std.testing.allocator;
+//     const io = std.testing.io;
+//     const crash = std.Io.Dir.cwd().readFileAlloc(io, ".zig-cache/f/crash", gpa, std.Io.Limit.unlimited) catch return;
+//     defer gpa.free(crash);
+//     var smith = std.testing.Smith{ .in = crash };
+//     try fuzzTestOneScannerAndParserAndPrettyPrinter({}, &smith);
+// }

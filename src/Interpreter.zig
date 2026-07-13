@@ -50,6 +50,7 @@ pub fn execute(self: *Interpreter, interpreterPrinter: *std.Io.Writer, reporter:
         .ExpressionStmt => |expressionStmt| {
             _ = try self.evaluate(reporter, expressionStmt.exprId);
         },
+        .VarDeclStmt => {}, // TODO:
     }
 }
 
@@ -118,6 +119,11 @@ pub fn evaluate(self: *Interpreter, reporter: Reporter, exprId: Expressions.Expr
                 },
                 else => unreachable,
             }
+        },
+        .VariableExpr => |variableExpr| {
+            _ = variableExpr; // autofix
+            // TODO:
+            unreachable;
         },
     };
 }

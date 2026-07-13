@@ -3,7 +3,7 @@ const Reporter = @import("Reporter.zig");
 const Allocator = std.mem.Allocator;
 const Scanner = @import("Scanner.zig");
 const Parser = @import("Parser.zig");
-const PrettyPrinter = @import("PrettyPrinter.zig");
+// const PrettyPrinter = @import("PrettyPrinter.zig");
 const Interpreter = @import("Interpreter.zig");
 
 pub const Error = error{ CompileError, RuntimeError };
