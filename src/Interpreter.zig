@@ -5,32 +5,33 @@ const Statements = @import("Statements.zig");
 const Statement = Statements.Statement;
 const Reporter = @import("Reporter.zig");
 const Lox = @import("Lox.zig");
+const Environment = @import("Environment.zig");
+const Allocator = std.mem.Allocator;
 
 const LiteralValue = Expressions.LiteralValue;
 
 expressions: []const Expression,
 statements: []const Statement,
+environment: Environment,
 const Interpreter = @This();
 
-const Error = Lox.Error || std.Io.Writer.Error;
+pub const Error = Lox.Error || std.Io.Writer.Error || Allocator.Error;
 
-pub fn init(expresssions: []const Expression, statements: []const Statement) Interpreter {
+pub fn init(gpa: Allocator, expresssions: []const Expression, statements: []const Statement) Interpreter {
     return Interpreter{
         .expressions = expresssions,
         .statements = statements,
+        .environment = Environment.init(gpa),
     };
 }
 
-pub fn interpret(self: *Interpreter, interpreterPrinter: *std.Io.Writer, reporter: Reporter) !void {
+pub fn deinit(self: *Interpreter) void {
+    self.environment.deinit();
+}
+
+pub fn interpret(self: *Interpreter, interpreterPrinter: *std.Io.Writer, reporter: Reporter) Error!void {
     for (self.statements) |statement| {
-        self.execute(interpreterPrinter, reporter, statement) catch |err| {
-            switch (err) {
-                Error.RuntimeError => {
-                    return;
-                },
-                else => return err,
-            }
-        };
+        try self.execute(interpreterPrinter, reporter, statement);
     }
 }
 
@@ -50,7 +51,10 @@ pub fn execute(self: *Interpreter, interpreterPrinter: *std.Io.Writer, reporter:
         .ExpressionStmt => |expressionStmt| {
             _ = try self.evaluate(reporter, expressionStmt.exprId);
         },
-        .VarDeclStmt => {}, // TODO:
+        .VarDeclStmt => |varDeclStmt| {
+            const value = try self.evaluate(reporter, varDeclStmt.valueExprId);
+            try self.environment.define(varDeclStmt.varName, value);
+        },
     }
 }
 
@@ -120,11 +124,7 @@ pub fn evaluate(self: *Interpreter, reporter: Reporter, exprId: Expressions.Expr
                 else => unreachable,
             }
         },
-        .VariableExpr => |variableExpr| {
-            _ = variableExpr; // autofix
-            // TODO:
-            unreachable;
-        },
+        .VariableExpr => |variableExpr| try self.environment.get(reporter, variableExpr.varName, variableExpr.line),
     };
 }
 

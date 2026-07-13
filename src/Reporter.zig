@@ -26,3 +26,8 @@ pub fn reportRuntimeError(self: Reporter, errorMessage: []const u8, line: u32) s
     try self.stderr_writer.print("{s}\n[line {d}]\n", .{ errorMessage, line });
     try self.stderr_writer.flush();
 }
+
+pub fn reportRuntimeErrorUndefinedVariable(self: Reporter, varName: []const u8, line: u32) std.Io.Writer.Error!void {
+    try self.stderr_writer.print("Undefined variable '{s}'.\n[line {d}]\n", .{ varName, line });
+    try self.stderr_writer.flush();
+}

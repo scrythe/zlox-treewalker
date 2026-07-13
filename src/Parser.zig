@@ -77,14 +77,16 @@ fn parseVarDecl(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!vo
     const nextToken = self.tokens[self.current];
     const varName = try self.getLexemeText(token, nextToken);
 
-    var initializerExprId: ?ExprId = null;
+    const initializerExprId: ExprId =
+        if (self.tokens[self.current].tokenType == .Equal) blk: {
+            self.current += 1;
+            break :blk try self.parseExpression(gpa, reporter);
+        } else blk: {
+            const literalExpr = Expression{ .LiteralExpr = .{ .value = .None } };
+            break :blk try self.addExpression(gpa, literalExpr);
+        };
 
-    if (self.tokens[self.current].tokenType == .Equal) {
-        self.current += 1;
-        initializerExprId = try self.parseExpression(gpa, reporter);
-    }
-
-    const varDeclStmtValue = Statements.VarDeclStmt{ .varName = varName, .exprId = initializerExprId };
+    const varDeclStmtValue = Statements.VarDeclStmt{ .varName = varName, .valueExprId = initializerExprId };
     const varDeclStmt = Statement{ .VarDeclStmt = varDeclStmtValue };
     try self.statements.append(gpa, varDeclStmt);
 
@@ -265,7 +267,7 @@ fn parsePrimary(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!Ex
         .Identifier => blk: {
             const nextToken = self.tokens[self.current];
             const tokenLexeme = try self.getLexemeText(token, nextToken);
-            break :blk Expression{ .VariableExpr = .{ .varName = tokenLexeme } };
+            break :blk Expression{ .VariableExpr = .{ .varName = tokenLexeme, .line = token.line } };
         },
         else => {
             if (self.current < self.tokens.len) {

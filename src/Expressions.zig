@@ -23,7 +23,7 @@ pub const UnaryExpr = struct {
 };
 pub const GroupingExpr = struct { exprId: ExprId };
 pub const LiteralExpr = struct { value: LiteralValue };
-pub const VariableExpr = struct { varName: []const u8 };
+pub const VariableExpr = struct { varName: []const u8, line: u32 };
 
 pub const Expression = union(enum) {
     BinaryExpr: BinaryExpr,
