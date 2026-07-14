@@ -125,6 +125,11 @@ pub fn evaluate(self: *Interpreter, reporter: Reporter, exprId: Expressions.Expr
             }
         },
         .VariableExpr => |variableExpr| try self.environment.get(reporter, variableExpr.varName, variableExpr.line),
+        .AssignmentExpr => |assignmentExpr| {
+            const value = try self.evaluate(reporter, assignmentExpr.valueExprId);
+            try self.environment.assign(reporter, assignmentExpr.varName, value, assignmentExpr.line);
+            return value;
+        },
     };
 }
 

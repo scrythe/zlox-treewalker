@@ -126,9 +126,38 @@ fn parsePrintStmt(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!
     try self.checkTokenTypeAndConsumeOnNoError(reporter, .Semicolon, "Expect ';' after value.", token);
 }
 
-/// expression -> equality
+/// expression -> assignment
 fn parseExpression(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
-    return self.parseEquality(gpa, reporter);
+    return self.parseAssignment(gpa, reporter);
+}
+
+/// assignment -> equality
+fn parseAssignment(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
+    const equalityExprId = try self.parseEquality(gpa, reporter);
+    const token = self.tokens[self.current];
+    if (token.tokenType != .Equal) return equalityExprId;
+    self.current += 1;
+    const valueExprId = try self.parseAssignment(gpa, reporter);
+
+    const equalityExpr = self.expressions.items[equalityExprId];
+    if (equalityExpr != .VariableExpr) {
+        if (self.current + 1 >= self.tokens.len) {
+            try reporter.reportWithContextAtEnd(token.line, "Invalid assignment targt.");
+            return ParseError.CompileError;
+        } else {
+            const tokenLexeme = try self.getLexemeText(token, self.tokens[self.current + 1]);
+            try reporter.reportWithContext(token.line, tokenLexeme, "Invalid assignment targt.");
+            return ParseError.CompileError;
+        }
+    }
+
+    const varName = equalityExpr.VariableExpr.varName;
+    const assignmentExpr = Expression{ .AssignmentExpr = .{
+        .varName = varName,
+        .valueExprId = valueExprId,
+        .line = token.line,
+    } };
+    return self.addExpression(gpa, assignmentExpr);
 }
 
 /// equality -> comparison ( ( "!=" | "==" ) comparison )*

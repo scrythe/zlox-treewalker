@@ -16,6 +16,10 @@ pub fn init(gpa: Allocator) Environment {
     };
 }
 
+pub fn deinit(self: *Environment) void {
+    self.values.deinit();
+}
+
 pub fn define(self: *Environment, name: []const u8, value: LiteralValue) Allocator.Error!void {
     return self.values.put(name, value);
 }
@@ -27,6 +31,10 @@ pub fn get(self: *Environment, reporter: Reporter, name: []const u8, line: u32) 
     };
 }
 
-pub fn deinit(self: *Environment) void {
-    self.values.deinit();
+pub fn assign(self: *Environment, reporter: Reporter, name: []const u8, value: LiteralValue, line: u32) Interpreter.Error!void {
+    if (!self.values.contains(name)) {
+        try reporter.reportRuntimeErrorUndefinedVariable(name, line);
+        return Interpreter.Error.RuntimeError;
+    }
+    self.values.putAssumeCapacity(name, value);
 }
