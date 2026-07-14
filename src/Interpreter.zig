@@ -55,6 +55,10 @@ pub fn execute(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.Io
             const value = try self.evaluate(arena, reporter, varDeclStmt.valueExprId);
             try self.environment.define(varDeclStmt.varName, value);
         },
+        .BlockStmt => |blockStmt| {
+            _ = blockStmt; // autofix
+            unreachable; // TODO:
+        },
     }
 }
 

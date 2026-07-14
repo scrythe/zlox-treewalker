@@ -18,28 +18,34 @@ pub const ParseError = Allocator.Error || Lox.Error || std.fmt.ParseFloatError |
 
 const log = std.log.scoped(.parser);
 
+const StatementsArray = std.ArrayList(Statement);
+
 const Parser = @This();
 code: []const u8,
 tokens: []const Scanner.Token,
 current: u32,
 expressions: std.ArrayList(Expression),
-statements: std.ArrayList(Statement),
+program_statements: StatementsArray,
+scoped_statements: StatementsArray,
 
 pub fn init(gpa: Allocator, code: []const u8, tokens: []const Scanner.Token) ParseError!Parser {
     const expressions = try std.ArrayList(Expression).initCapacity(gpa, tokens.len);
-    const statements = try std.ArrayList(Statement).initCapacity(gpa, tokens.len);
+    const program_statements = try StatementsArray.initCapacity(gpa, tokens.len);
+    const scoped_statements = try StatementsArray.initCapacity(gpa, tokens.len);
     return Parser{
         .code = code,
         .tokens = tokens,
         .current = 0,
         .expressions = expressions,
-        .statements = statements,
+        .program_statements = program_statements,
+        .scoped_statements = scoped_statements,
     };
 }
 
 pub fn deinit(self: *Parser, gpa: Allocator) void {
     self.expressions.deinit(gpa);
-    self.statements.deinit(gpa);
+    self.program_statements.deinit(gpa);
+    self.scoped_statements.deinit(gpa);
 }
 
 /// program -> delcaration EOF
@@ -47,7 +53,7 @@ pub fn parse(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!void 
     var hasError = false;
     var tokenType = self.tokens[self.current].tokenType;
     while (tokenType != .Eof) {
-        self.parseDeclaration(gpa, reporter) catch |err| {
+        self.parseDeclaration(gpa, reporter, true) catch |err| {
             if (err != ParseError.CompileError) return;
             hasError = true;
             self.synchronize();
@@ -59,18 +65,18 @@ pub fn parse(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!void 
 }
 
 /// declaration -> varDecl | statement
-fn parseDeclaration(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!void {
+fn parseDeclaration(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!void {
     const tokenType = self.tokens[self.current].tokenType;
     if (tokenType == .Var) {
         self.current += 1;
-        try self.parseVarDecl(gpa, reporter);
+        try self.parseVarDecl(gpa, reporter, global_statement);
     } else {
-        try self.parseStatement(gpa, reporter);
+        try self.parseStatement(gpa, reporter, global_statement);
     }
 }
 
 /// varDecl -> "var" Identifier ( "=" expression )? ";"
-fn parseVarDecl(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!void {
+fn parseVarDecl(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!void {
     const token = self.tokens[self.current];
     try self.checkTokenTypeAndConsumeOnNoError(reporter, .Identifier, "Expect variable name.", token);
 
@@ -88,42 +94,80 @@ fn parseVarDecl(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!vo
 
     const varDeclStmtValue = Statements.VarDeclStmt{ .varName = varName, .valueExprId = initializerExprId };
     const varDeclStmt = Statement{ .VarDeclStmt = varDeclStmtValue };
-    try self.statements.append(gpa, varDeclStmt);
+    if (global_statement) {
+        try self.program_statements.append(gpa, varDeclStmt);
+    } else {
+        try self.scoped_statements.append(gpa, varDeclStmt);
+    }
 
     const semicolonToken = self.tokens[self.current];
     try self.checkTokenTypeAndConsumeOnNoError(reporter, .Semicolon, "Expect ';' after variable declaration.", semicolonToken);
 }
 
-/// statement -> exprStmt | printStmt
-fn parseStatement(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!void {
+/// statement -> exprStmt | printStmt | block
+fn parseStatement(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!void {
     // could maybe combine some logic from parseExprStmt and parsePrintStmt but will
     // do later if still worth it
     const tokenType = self.tokens[self.current].tokenType;
-    if (tokenType == .Print) {
-        self.current += 1;
-        try self.parsePrintStmt(gpa, reporter);
-    } else {
-        try self.parseExprStmt(gpa, reporter);
+    switch (tokenType) {
+        .Print => {
+            self.current += 1;
+            try self.parsePrintStmt(gpa, reporter, global_statement);
+        },
+        .LeftBrace => {
+            self.current += 1;
+            try self.parseBlockStmt(gpa, reporter, global_statement);
+        },
+        else => try self.parseExprStmt(gpa, reporter, global_statement),
     }
 }
 
-fn parseExprStmt(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!void {
+fn parseExprStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!void {
     const exprId = try self.parseExpression(gpa, reporter);
     const exprStmtValue = Statements.ExpressionStmt{ .exprId = exprId };
     const exprStmt = Statement{ .ExpressionStmt = exprStmtValue };
-    try self.statements.append(gpa, exprStmt);
+    if (global_statement) {
+        try self.program_statements.append(gpa, exprStmt);
+    } else {
+        try self.scoped_statements.append(gpa, exprStmt);
+    }
     const token = self.tokens[self.current];
     try self.checkTokenTypeAndConsumeOnNoError(reporter, .Semicolon, "Expect ';' after expression.", token);
 }
 
 /// printStmt -> "print" expression ";"
-fn parsePrintStmt(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!void {
+fn parsePrintStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!void {
     const exprId = try self.parseExpression(gpa, reporter);
     const printStmtValue = Statements.PrintStmt{ .exprId = exprId };
     const printStmt = Statement{ .PrintStmt = printStmtValue };
-    try self.statements.append(gpa, printStmt);
+    if (global_statement) {
+        try self.program_statements.append(gpa, printStmt);
+    } else {
+        try self.scoped_statements.append(gpa, printStmt);
+    }
     const token = self.tokens[self.current];
     try self.checkTokenTypeAndConsumeOnNoError(reporter, .Semicolon, "Expect ';' after value.", token);
+}
+
+/// "{" declaration* "}"
+fn parseBlockStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!void {
+    const start = self.scoped_statements.items.len;
+    var token = self.tokens[self.current];
+    while (self.current < self.tokens.len and token.tokenType != .Eof and token.tokenType != .RightBrace) {
+        try self.parseDeclaration(gpa, reporter, false);
+        token = self.tokens[self.current];
+    }
+    const endExclusive = self.scoped_statements.items.len;
+    try self.checkTokenTypeAndConsumeOnNoError(reporter, .RightBrace, "Expect '}' after block", token);
+    const blockStmt = Statement{ .BlockStmt = .{
+        .start = @intCast(start),
+        .endExclusive = @intCast(endExclusive),
+    } };
+    if (global_statement) {
+        try self.program_statements.append(gpa, blockStmt);
+    } else {
+        try self.scoped_statements.append(gpa, blockStmt);
+    }
 }
 
 /// expression -> assignment
@@ -316,12 +360,6 @@ fn parsePrimary(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!Ex
 fn addExpression(self: *Parser, gpa: Allocator, expr: Expression) Allocator.Error!ExprId {
     const id = self.expressions.items.len;
     try self.expressions.append(gpa, expr);
-    return @intCast(id);
-}
-
-fn addStatement(self: *Parser, gpa: Allocator, stmt: Statement) Allocator.Error!StmtId {
-    const id = self.statements.items.len;
-    try self.statements.append(gpa, stmt);
     return @intCast(id);
 }
 
