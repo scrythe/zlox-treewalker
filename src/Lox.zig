@@ -5,6 +5,7 @@ const Scanner = @import("Scanner.zig");
 const Parser = @import("Parser.zig");
 // const PrettyPrinter = @import("PrettyPrinter.zig");
 const Interpreter = @import("Interpreter.zig");
+const ArenaAllocator = std.heap.ArenaAllocator;
 
 pub const Error = error{ CompileError, RuntimeError };
 
@@ -64,7 +65,10 @@ pub fn run(gpa: Allocator, stdout_writer: *std.Io.Writer, reporter: Reporter, co
     // const prettyPrinter = PrettyPrinter.init(parser.expressions.items);
     // try prettyPrinter.print(stdout_writer, exprId);
 
+    var arena_instance = ArenaAllocator.init(gpa);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
     var interpreter = Interpreter.init(gpa, parser.expressions.items, parser.statements.items);
     defer interpreter.deinit();
-    try interpreter.interpret(stdout_writer, reporter);
+    try interpreter.interpret(arena, stdout_writer, reporter);
 }

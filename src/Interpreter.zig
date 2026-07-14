@@ -29,16 +29,16 @@ pub fn deinit(self: *Interpreter) void {
     self.environment.deinit();
 }
 
-pub fn interpret(self: *Interpreter, interpreterPrinter: *std.Io.Writer, reporter: Reporter) Error!void {
+pub fn interpret(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.Io.Writer, reporter: Reporter) Error!void {
     for (self.statements) |statement| {
-        try self.execute(interpreterPrinter, reporter, statement);
+        try self.execute(arena, interpreterPrinter, reporter, statement);
     }
 }
 
-pub fn execute(self: *Interpreter, interpreterPrinter: *std.Io.Writer, reporter: Reporter, statement: Statement) Error!void {
+pub fn execute(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.Io.Writer, reporter: Reporter, statement: Statement) Error!void {
     switch (statement) {
         .PrintStmt => |printStmt| {
-            const value = try self.evaluate(reporter, printStmt.exprId);
+            const value = try self.evaluate(arena, reporter, printStmt.exprId);
 
             switch (value) {
                 .None => try interpreterPrinter.print("None\n", .{}),
@@ -49,20 +49,20 @@ pub fn execute(self: *Interpreter, interpreterPrinter: *std.Io.Writer, reporter:
             try interpreterPrinter.flush();
         },
         .ExpressionStmt => |expressionStmt| {
-            _ = try self.evaluate(reporter, expressionStmt.exprId);
+            _ = try self.evaluate(arena, reporter, expressionStmt.exprId);
         },
         .VarDeclStmt => |varDeclStmt| {
-            const value = try self.evaluate(reporter, varDeclStmt.valueExprId);
+            const value = try self.evaluate(arena, reporter, varDeclStmt.valueExprId);
             try self.environment.define(varDeclStmt.varName, value);
         },
     }
 }
 
-pub fn evaluate(self: *Interpreter, reporter: Reporter, exprId: Expressions.ExprId) Error!LiteralValue {
+pub fn evaluate(self: *Interpreter, arena: Allocator, reporter: Reporter, exprId: Expressions.ExprId) Error!LiteralValue {
     return switch (self.expressions[exprId]) {
         .BinaryExpr => |binaryExpr| {
-            const left = try self.evaluate(reporter, binaryExpr.left);
-            const right = try self.evaluate(reporter, binaryExpr.right);
+            const left = try self.evaluate(arena, reporter, binaryExpr.left);
+            const right = try self.evaluate(arena, reporter, binaryExpr.right);
             switch (binaryExpr.operator) {
                 .BangEqual => return LiteralValue{ .Bool = !equals(left, right) },
                 .EqualEqual => return LiteralValue{ .Bool = equals(left, right) },
@@ -86,7 +86,8 @@ pub fn evaluate(self: *Interpreter, reporter: Reporter, exprId: Expressions.Expr
                     if (left == .Number and right == .Number) {
                         return LiteralValue{ .Number = left.Number + right.Number };
                     } else if (left == .String and right == .String) {
-                        return LiteralValue{ .String = left.String }; // TODO:
+                        const res = try std.mem.concat(arena, u8, &.{ left.String, right.String });
+                        return LiteralValue{ .String = res };
                     }
                     try reporter.reportRuntimeError("Operands must be two numbers or two strings", binaryExpr.line);
                     return Error.RuntimeError;
@@ -107,11 +108,11 @@ pub fn evaluate(self: *Interpreter, reporter: Reporter, exprId: Expressions.Expr
             }
         },
         .GroupingExpr => |groupingExpr| {
-            return self.evaluate(reporter, groupingExpr.exprId);
+            return self.evaluate(arena, reporter, groupingExpr.exprId);
         },
         .LiteralExpr => |literalExpr| literalExpr.value,
         .UnaryExpr => |unaryExpr| {
-            const right = try self.evaluate(reporter, unaryExpr.right);
+            const right = try self.evaluate(arena, reporter, unaryExpr.right);
             switch (unaryExpr.operator) {
                 .Bang => return LiteralValue{ .Bool = !isTruthy(right) },
                 .Minus => {
@@ -126,7 +127,7 @@ pub fn evaluate(self: *Interpreter, reporter: Reporter, exprId: Expressions.Expr
         },
         .VariableExpr => |variableExpr| try self.environment.get(reporter, variableExpr.varName, variableExpr.line),
         .AssignmentExpr => |assignmentExpr| {
-            const value = try self.evaluate(reporter, assignmentExpr.valueExprId);
+            const value = try self.evaluate(arena, reporter, assignmentExpr.valueExprId);
             try self.environment.assign(reporter, assignmentExpr.varName, value, assignmentExpr.line);
             return value;
         },
