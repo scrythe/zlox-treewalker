@@ -11,16 +11,18 @@ const Allocator = std.mem.Allocator;
 const LiteralValue = Expressions.LiteralValue;
 
 expressions: []const Expression,
-statements: []const Statement,
+program_statements: []const Statement,
+scoped_statements: []const Statement,
 environment: Environment,
 const Interpreter = @This();
 
 pub const Error = Lox.Error || std.Io.Writer.Error || Allocator.Error;
 
-pub fn init(gpa: Allocator, expresssions: []const Expression, statements: []const Statement) Interpreter {
+pub fn init(gpa: Allocator, expresssions: []const Expression, program_statements: []const Statement, scoped_statements: []const Statement) Interpreter {
     return Interpreter{
         .expressions = expresssions,
-        .statements = statements,
+        .program_statements = program_statements,
+        .scoped_statements = scoped_statements,
         .environment = Environment.init(gpa),
     };
 }
@@ -30,7 +32,7 @@ pub fn deinit(self: *Interpreter) void {
 }
 
 pub fn interpret(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.Io.Writer, reporter: Reporter) Error!void {
-    for (self.statements) |statement| {
+    for (self.program_statements) |statement| {
         try self.execute(arena, interpreterPrinter, reporter, statement);
     }
 }
@@ -56,8 +58,15 @@ pub fn execute(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.Io
             try self.environment.define(varDeclStmt.varName, value);
         },
         .BlockStmt => |blockStmt| {
-            _ = blockStmt; // autofix
-            unreachable; // TODO:
+            // const stmtsInBlock = self.scoped_statements[blockStmt.start..blockStmt.endExclusive];
+            var indexOfStmtInBlock = blockStmt.start;
+            while (indexOfStmtInBlock < blockStmt.endExclusive) : (indexOfStmtInBlock += 1) {
+                const stmtInBlock = self.scoped_statements[indexOfStmtInBlock];
+                try self.execute(arena, interpreterPrinter, reporter, stmtInBlock);
+                if (stmtInBlock == .BlockStmt) {
+                    indexOfStmtInBlock = stmtInBlock.BlockStmt.endExclusive - 1;
+                }
+            }
         },
     }
 }

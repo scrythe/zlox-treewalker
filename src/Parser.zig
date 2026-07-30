@@ -151,6 +151,11 @@ fn parsePrintStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_stat
 
 /// "{" declaration* "}"
 fn parseBlockStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!void {
+    const blockStmtRef = if (global_statement)
+        try self.program_statements.addOne(gpa)
+    else
+        try self.scoped_statements.addOne(gpa);
+
     const start = self.scoped_statements.items.len;
     var token = self.tokens[self.current];
     while (self.current < self.tokens.len and token.tokenType != .Eof and token.tokenType != .RightBrace) {
@@ -159,15 +164,15 @@ fn parseBlockStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_stat
     }
     const endExclusive = self.scoped_statements.items.len;
     try self.checkTokenTypeAndConsumeOnNoError(reporter, .RightBrace, "Expect '}' after block", token);
-    const blockStmt = Statement{ .BlockStmt = .{
-        .start = @intCast(start),
-        .endExclusive = @intCast(endExclusive),
-    } };
-    if (global_statement) {
-        try self.program_statements.append(gpa, blockStmt);
-    } else {
-        try self.scoped_statements.append(gpa, blockStmt);
-    }
+
+    const blockStmt = Statement{
+        .BlockStmt = .{
+            .start = @intCast(start),
+            .endExclusive = @intCast(endExclusive),
+        },
+    };
+
+    blockStmtRef.* = blockStmt;
 }
 
 /// expression -> assignment

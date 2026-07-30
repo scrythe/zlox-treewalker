@@ -1,3 +1,8 @@
-5+5;
-
-print 7;
+{
+  {
+    var a = 5;
+    var b = 2;
+    print a;
+  }
+  print b;
+}

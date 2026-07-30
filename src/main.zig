@@ -4,11 +4,13 @@ const log = std.log.scoped(.zlox);
 const Lox = @import("Lox.zig");
 const Reporter = @import("Reporter.zig");
 
+var stdout_buffer: [1024]u8 = undefined;
+
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
     const io = init.io;
 
-    var stdout_buffer: [1024]u8 = undefined;
+    // var stdout_buffer: [1024]u8 = undefined;
     var stdout_file_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
     const stdout_writer = &stdout_file_writer.interface;
 

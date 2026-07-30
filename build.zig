@@ -4,14 +4,18 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const debug_build = b.option(bool, "debug", "debug build");
     const exe = b.addExecutable(.{
         .name = "zlox_treewalker",
+        .use_llvm = debug_build,
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = debug_build,
         }),
     });
+    exe.pie = debug_build;
 
     b.installArtifact(exe);
 

@@ -68,7 +68,7 @@ pub fn run(gpa: Allocator, stdout_writer: *std.Io.Writer, reporter: Reporter, co
     var arena_instance = ArenaAllocator.init(gpa);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
-    var interpreter = Interpreter.init(gpa, parser.expressions.items, parser.program_statements.items);
+    var interpreter = Interpreter.init(gpa, parser.expressions.items, parser.program_statements.items, parser.scoped_statements.items);
     defer interpreter.deinit();
     try interpreter.interpret(arena, stdout_writer, reporter);
 }
