@@ -13,17 +13,17 @@ const LiteralValue = Expressions.LiteralValue;
 expressions: []const Expression,
 program_statements: []const Statement,
 scoped_statements: []const Statement,
-environment: Environment,
+environment: *Environment,
 const Interpreter = @This();
 
 pub const Error = Lox.Error || std.Io.Writer.Error || Allocator.Error;
 
-pub fn init(gpa: Allocator, expresssions: []const Expression, program_statements: []const Statement, scoped_statements: []const Statement) Interpreter {
+pub fn init(global_environment: *Environment, expresssions: []const Expression, program_statements: []const Statement, scoped_statements: []const Statement) Interpreter {
     return Interpreter{
         .expressions = expresssions,
         .program_statements = program_statements,
         .scoped_statements = scoped_statements,
-        .environment = Environment.init(gpa),
+        .environment = global_environment,
     };
 }
 
@@ -59,6 +59,10 @@ pub fn execute(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.Io
         },
         .BlockStmt => |blockStmt| {
             // const stmtsInBlock = self.scoped_statements[blockStmt.start..blockStmt.endExclusive];
+            var newEnvironment = Environment.init(arena);
+            const oldEnvironment = self.environment;
+            newEnvironment.enclosing = oldEnvironment;
+            self.environment = &newEnvironment;
             var indexOfStmtInBlock = blockStmt.start;
             while (indexOfStmtInBlock < blockStmt.endExclusive) : (indexOfStmtInBlock += 1) {
                 const stmtInBlock = self.scoped_statements[indexOfStmtInBlock];
@@ -67,6 +71,7 @@ pub fn execute(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.Io
                     indexOfStmtInBlock = stmtInBlock.BlockStmt.endExclusive - 1;
                 }
             }
+            self.environment = oldEnvironment;
         },
     }
 }

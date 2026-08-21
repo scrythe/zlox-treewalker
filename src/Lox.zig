@@ -3,6 +3,7 @@ const Reporter = @import("Reporter.zig");
 const Allocator = std.mem.Allocator;
 const Scanner = @import("Scanner.zig");
 const Parser = @import("Parser.zig");
+const Environment = @import("Environment.zig");
 // const PrettyPrinter = @import("PrettyPrinter.zig");
 const Interpreter = @import("Interpreter.zig");
 const ArenaAllocator = std.heap.ArenaAllocator;
@@ -68,7 +69,8 @@ pub fn run(gpa: Allocator, stdout_writer: *std.Io.Writer, reporter: Reporter, co
     var arena_instance = ArenaAllocator.init(gpa);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
-    var interpreter = Interpreter.init(gpa, parser.expressions.items, parser.program_statements.items, parser.scoped_statements.items);
+    var global_environment = Environment.init(gpa);
+    var interpreter = Interpreter.init(&global_environment, parser.expressions.items, parser.program_statements.items, parser.scoped_statements.items);
     defer interpreter.deinit();
     try interpreter.interpret(arena, stdout_writer, reporter);
 }
