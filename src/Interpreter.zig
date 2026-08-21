@@ -39,6 +39,18 @@ pub fn interpret(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.
 
 pub fn execute(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.Io.Writer, reporter: Reporter, statement: Statement) Error!void {
     switch (statement) {
+        .IfStmt => |ifStmt| {
+            const condition = try self.evaluate(arena, reporter, ifStmt.conditionExprId);
+            if (isTruthy(condition)) {
+                const thenBranch = self.scoped_statements[ifStmt.thenBranchId];
+                try self.execute(arena, interpreterPrinter, reporter, thenBranch);
+            } else {
+                if (ifStmt.elseBranchId) |elseBranchId| {
+                    const elseBranch = self.scoped_statements[elseBranchId];
+                    try self.execute(arena, interpreterPrinter, reporter, elseBranch);
+                }
+            }
+        },
         .PrintStmt => |printStmt| {
             const value = try self.evaluate(arena, reporter, printStmt.exprId);
 
@@ -129,6 +141,16 @@ pub fn evaluate(self: *Interpreter, arena: Allocator, reporter: Reporter, exprId
             return self.evaluate(arena, reporter, groupingExpr.exprId);
         },
         .LiteralExpr => |literalExpr| literalExpr.value,
+        .Logical => |logical| {
+            const left = try self.evaluate(arena, reporter, logical.left);
+            if (!isTruthy(left) and logical.operator == .And) {
+                return LiteralValue{ .Bool = false };
+            } else if (isTruthy(left) and logical.operator == .Or) {
+                return LiteralValue{ .Bool = true };
+            } else {
+                return try self.evaluate(arena, reporter, logical.right);
+            }
+        },
         .UnaryExpr => |unaryExpr| {
             const right = try self.evaluate(arena, reporter, unaryExpr.right);
             switch (unaryExpr.operator) {

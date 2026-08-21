@@ -23,6 +23,7 @@ pub const UnaryExpr = struct {
 };
 pub const GroupingExpr = struct { exprId: ExprId };
 pub const LiteralExpr = struct { value: LiteralValue };
+pub const Logical = struct { left: ExprId, operator: Scanner.TokenType, right: ExprId };
 pub const VariableExpr = struct { varName: []const u8, line: u32 };
 pub const AssignmentExpr = struct { varName: []const u8, valueExprId: ExprId, line: u32 };
 
@@ -30,6 +31,7 @@ pub const Expression = union(enum) {
     BinaryExpr: BinaryExpr,
     GroupingExpr: GroupingExpr,
     LiteralExpr: LiteralExpr,
+    Logical: Logical,
     UnaryExpr: UnaryExpr,
     VariableExpr: VariableExpr,
     AssignmentExpr: AssignmentExpr,

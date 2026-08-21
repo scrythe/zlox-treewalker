@@ -1,12 +1,4 @@
-{
-  var b = 5;
-  var c = 5;
-  {
-    var a = 5;
-    var b = 2;
-    print a;
-    print b;
-    print c;
-  }
-  print b;
-}
+if (false and true) print 1;
+if (false or true) print 2;
+if (true and true) print 3;
+if (false or false) print 4;

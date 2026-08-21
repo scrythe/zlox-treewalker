@@ -104,12 +104,16 @@ fn parseVarDecl(self: *Parser, gpa: Allocator, reporter: Reporter, global_statem
     try self.checkTokenTypeAndConsumeOnNoError(reporter, .Semicolon, "Expect ';' after variable declaration.", semicolonToken);
 }
 
-/// statement -> exprStmt | printStmt | block
+/// statement -> exprStmt | ifStmt | printStmt | block
 fn parseStatement(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!void {
     // could maybe combine some logic from parseExprStmt and parsePrintStmt but will
     // do later if still worth it
     const tokenType = self.tokens[self.current].tokenType;
     switch (tokenType) {
+        .If => {
+            self.current += 1;
+            try self.parseIfStmt(gpa, reporter, global_statement);
+        },
         .Print => {
             self.current += 1;
             try self.parsePrintStmt(gpa, reporter, global_statement);
@@ -119,6 +123,31 @@ fn parseStatement(self: *Parser, gpa: Allocator, reporter: Reporter, global_stat
             try self.parseBlockStmt(gpa, reporter, global_statement);
         },
         else => try self.parseExprStmt(gpa, reporter, global_statement),
+    }
+}
+
+fn parseIfStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!void {
+    const leftParenToken = self.tokens[self.current];
+    try self.checkTokenTypeAndConsumeOnNoError(reporter, TokenType.LeftParen, "Expect '(' after 'if'.", leftParenToken);
+    const conditionId = try self.parseExpression(gpa, reporter);
+    const rightParenToken = self.tokens[self.current];
+    try self.checkTokenTypeAndConsumeOnNoError(reporter, TokenType.RightParen, "Expect ')' after if condition.", rightParenToken);
+
+    const thenBranch: u32 = @intCast(self.scoped_statements.items.len);
+    try self.parseStatement(gpa, reporter, false);
+
+    var elseBranch: ?StmtId = null;
+    if (self.tokens[self.current].tokenType == .Else) {
+        self.current += 1;
+        elseBranch = @intCast(self.scoped_statements.items.len);
+        try self.parseStatement(gpa, reporter, false);
+    }
+    const ifStmtValue = Statements.IfStmt{ .conditionExprId = conditionId, .thenBranchId = thenBranch, .elseBranchId = elseBranch };
+    const ifStmt = Statement{ .IfStmt = ifStmtValue };
+    if (global_statement) {
+        try self.program_statements.append(gpa, ifStmt);
+    } else {
+        try self.scoped_statements.append(gpa, ifStmt);
     }
 }
 
@@ -180,9 +209,10 @@ fn parseExpression(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError
     return self.parseAssignment(gpa, reporter);
 }
 
-/// assignment -> equality
+/// assignment -> IDENTIFIER '=' assignment
+///            | logic_or
 fn parseAssignment(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
-    const equalityExprId = try self.parseEquality(gpa, reporter);
+    const equalityExprId = try self.parseLogicOr(gpa, reporter);
     const token = self.tokens[self.current];
     if (token.tokenType != .Equal) return equalityExprId;
     self.current += 1;
@@ -207,6 +237,38 @@ fn parseAssignment(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError
         .line = token.line,
     } };
     return self.addExpression(gpa, assignmentExpr);
+}
+
+/// logic_or -> logic_and ( "or" logic_and )*
+fn parseLogicOr(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
+    var logicAnd = try self.parseLogicAnd(gpa, reporter);
+    var token = self.tokens[self.current];
+    while (token.tokenType == .Or) {
+        self.current += 1;
+        const rightLogicAndId = try self.parseLogicAnd(gpa, reporter);
+        const logicOrValue = Expressions.Logical{ .left = logicAnd, .operator = .Or, .right = rightLogicAndId };
+        const logicOr = Expression{ .Logical = logicOrValue };
+        logicAnd = try self.addExpression(gpa, logicOr);
+
+        token = self.tokens[self.current];
+    }
+    return logicAnd;
+}
+
+/// logic_and -> equality ( "and" equality )*
+fn parseLogicAnd(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
+    var equalityExprId = try self.parseEquality(gpa, reporter);
+    var token = self.tokens[self.current];
+    while (token.tokenType == .And) {
+        self.current += 1;
+        const rightEqualityExprId = try self.parseEquality(gpa, reporter);
+        const logicAndValue = Expressions.Logical{ .left = equalityExprId, .operator = .And, .right = rightEqualityExprId };
+        const logicAnd = Expression{ .Logical = logicAndValue };
+        equalityExprId = try self.addExpression(gpa, logicAnd);
+
+        token = self.tokens[self.current];
+    }
+    return equalityExprId;
 }
 
 /// equality -> comparison ( ( "!=" | "==" ) comparison )*
