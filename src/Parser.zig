@@ -104,7 +104,7 @@ fn parseVarDecl(self: *Parser, gpa: Allocator, reporter: Reporter, global_statem
     try self.checkTokenTypeAndConsumeOnNoError(reporter, .Semicolon, "Expect ';' after variable declaration.", semicolonToken);
 }
 
-/// statement -> exprStmt | ifStmt | printStmt | block
+/// statement -> exprStmt | ifStmt | printStmt | whileStmt | block
 fn parseStatement(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!void {
     // could maybe combine some logic from parseExprStmt and parsePrintStmt but will
     // do later if still worth it
@@ -117,6 +117,10 @@ fn parseStatement(self: *Parser, gpa: Allocator, reporter: Reporter, global_stat
         .Print => {
             self.current += 1;
             try self.parsePrintStmt(gpa, reporter, global_statement);
+        },
+        .While => {
+            self.current += 1;
+            try self.parseWhileStmt(gpa, reporter, global_statement);
         },
         .LeftBrace => {
             self.current += 1;
@@ -176,6 +180,29 @@ fn parsePrintStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_stat
     }
     const token = self.tokens[self.current];
     try self.checkTokenTypeAndConsumeOnNoError(reporter, .Semicolon, "Expect ';' after value.", token);
+}
+
+/// while -> "while" "(" expression ")" statement ;
+fn parseWhileStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!void {
+    const leftParenToken = self.tokens[self.current];
+    try self.checkTokenTypeAndConsumeOnNoError(reporter, TokenType.LeftParen, "Expect '(' after 'if'.", leftParenToken);
+
+    const conditionExprId = try self.parseExpression(gpa, reporter);
+
+    const rightParenToken = self.tokens[self.current];
+    try self.checkTokenTypeAndConsumeOnNoError(reporter, TokenType.RightParen, "Expect ')' after if condition.", rightParenToken);
+
+    const statement: u32 = @intCast(self.scoped_statements.items.len);
+    try self.parseStatement(gpa, reporter, false);
+
+    const whileStmtValue = Statements.WhileStmt{ .conditionExprId = conditionExprId, .bodyStmtId = statement };
+    const whileStmt = Statement{ .WhileStmt = whileStmtValue };
+
+    if (global_statement) {
+        try self.program_statements.append(gpa, whileStmt);
+    } else {
+        try self.scoped_statements.append(gpa, whileStmt);
+    }
 }
 
 /// "{" declaration* "}"

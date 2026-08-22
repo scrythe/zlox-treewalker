@@ -1,4 +1,6 @@
-if (false and true) print 1;
-if (false or true) print 2;
-if (true and true) print 3;
-if (false or false) print 4;
+var i = 0;
+while (i < 5) {
+  print i;
+  i = i + 1;
+}
+

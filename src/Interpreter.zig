@@ -62,6 +62,15 @@ pub fn execute(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.Io
             }
             try interpreterPrinter.flush();
         },
+        .WhileStmt => |whileStmt| {
+            var condition = true;
+            while (condition) {
+                const bodyStmt = self.scoped_statements[whileStmt.bodyStmtId];
+                try self.execute(arena, interpreterPrinter, reporter, bodyStmt);
+                const conditionLiteral = try self.evaluate(arena, reporter, whileStmt.conditionExprId);
+                condition = isTruthy(conditionLiteral);
+            }
+        },
         .ExpressionStmt => |expressionStmt| {
             _ = try self.evaluate(arena, reporter, expressionStmt.exprId);
         },
