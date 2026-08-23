@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const Scanner = @import("Scanner.zig");
 const Parser = @import("Parser.zig");
 const Environment = @import("Environment.zig");
-// const PrettyPrinter = @import("PrettyPrinter.zig");
+const PrettyPrinter = @import("PrettyPrinter.zig");
 const Interpreter = @import("Interpreter.zig");
 const ArenaAllocator = std.heap.ArenaAllocator;
 
@@ -63,8 +63,8 @@ pub fn run(gpa: Allocator, stdout_writer: *std.Io.Writer, reporter: Reporter, co
         return;
     }
 
-    // const prettyPrinter = PrettyPrinter.init(parser.expressions.items);
-    // try prettyPrinter.print(stdout_writer, exprId);
+    const prettyPrinter = PrettyPrinter.init(parser.expressions.items, parser.program_statements.items, parser.scoped_statements.items);
+    try prettyPrinter.printProgramStatements(stdout_writer);
 
     var arena_instance = ArenaAllocator.init(gpa);
     defer arena_instance.deinit();
