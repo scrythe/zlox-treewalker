@@ -27,27 +27,27 @@ pub fn init(global_environment: *Environment, expresssions: []const Expression, 
     };
 }
 
-pub fn deinit(self: *Interpreter) void {
-    self.environment.deinit();
-}
+// pub fn deinit(self: *Interpreter) void {
+//     self.environment.deinit();
+// }
 
-pub fn interpret(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.Io.Writer, reporter: Reporter) Error!void {
+pub fn interpret(self: *Interpreter, global_arena: Allocator, arena: Allocator, interpreterPrinter: *std.Io.Writer, reporter: Reporter) Error!void {
     for (self.program_statements) |statement| {
-        try self.execute(arena, interpreterPrinter, reporter, statement);
+        try self.execute(global_arena, arena, interpreterPrinter, reporter, statement);
     }
 }
 
-pub fn execute(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.Io.Writer, reporter: Reporter, statement: Statement) Error!void {
+pub fn execute(self: *Interpreter, global_arena: Allocator, arena: Allocator, interpreterPrinter: *std.Io.Writer, reporter: Reporter, statement: Statement) Error!void {
     switch (statement) {
         .IfStmt => |ifStmt| {
             const condition = try self.evaluate(arena, reporter, ifStmt.conditionExprId);
             if (isTruthy(condition)) {
                 const thenBranch = self.scoped_statements[ifStmt.thenBranchId];
-                try self.execute(arena, interpreterPrinter, reporter, thenBranch);
+                try self.execute(global_arena, arena, interpreterPrinter, reporter, thenBranch);
             } else {
                 if (ifStmt.elseBranchId) |elseBranchId| {
                     const elseBranch = self.scoped_statements[elseBranchId];
-                    try self.execute(arena, interpreterPrinter, reporter, elseBranch);
+                    try self.execute(global_arena, arena, interpreterPrinter, reporter, elseBranch);
                 }
             }
         },
@@ -66,7 +66,7 @@ pub fn execute(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.Io
             var condition = true;
             while (condition) {
                 const bodyStmt = self.scoped_statements[whileStmt.bodyStmtId];
-                try self.execute(arena, interpreterPrinter, reporter, bodyStmt);
+                try self.execute(global_arena, arena, interpreterPrinter, reporter, bodyStmt);
                 const conditionLiteral = try self.evaluate(arena, reporter, whileStmt.conditionExprId);
                 condition = isTruthy(conditionLiteral);
             }
@@ -76,7 +76,7 @@ pub fn execute(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.Io
         },
         .VarDeclStmt => |varDeclStmt| {
             const value = try self.evaluate(arena, reporter, varDeclStmt.valueExprId);
-            try self.environment.define(varDeclStmt.varName, value);
+            try self.environment.define(global_arena, varDeclStmt.varName, value);
         },
         .BlockStmt => |blockStmt| {
             // const stmtsInBlock = self.scoped_statements[blockStmt.start..blockStmt.endExclusive];
@@ -87,7 +87,7 @@ pub fn execute(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.Io
             var indexOfStmtInBlock = blockStmt.start;
             while (indexOfStmtInBlock < blockStmt.endExclusive) : (indexOfStmtInBlock += 1) {
                 const stmtInBlock = self.scoped_statements[indexOfStmtInBlock];
-                try self.execute(arena, interpreterPrinter, reporter, stmtInBlock);
+                try self.execute(global_arena, arena, interpreterPrinter, reporter, stmtInBlock);
                 if (stmtInBlock == .BlockStmt) {
                     indexOfStmtInBlock = stmtInBlock.BlockStmt.endExclusive - 1;
                 }
@@ -177,7 +177,7 @@ pub fn evaluate(self: *Interpreter, arena: Allocator, reporter: Reporter, exprId
         .VariableExpr => |variableExpr| try self.environment.get(reporter, variableExpr.varName, variableExpr.line),
         .AssignmentExpr => |assignmentExpr| {
             const value = try self.evaluate(arena, reporter, assignmentExpr.valueExprId);
-            try self.environment.assign(reporter, assignmentExpr.varName, value, assignmentExpr.line);
+            try self.environment.assign(reporter, arena, assignmentExpr.varName, value, assignmentExpr.line);
             return value;
         },
     };

@@ -1,1 +1,4 @@
-for (var i = 0; i < 5; i = i + 1) print i;
+var a = "hm";
+print a;
+// for (var i = 0; i < 5; i = i + 1) print i;
+// for (; i < 5; i = i + 1) print i;

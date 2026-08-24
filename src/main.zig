@@ -22,18 +22,21 @@ pub fn main(init: std.process.Init) !void {
     const args = try init.minimal.args.toSlice(gpa);
     defer gpa.free(args); // maybe error? no arena
 
+    var lox: Lox = undefined;
+    Lox.init(gpa, &lox);
+    defer lox.deinit();
     if (args.len > 2) {
         try stderr_writer.print("Usage: jlox [script]\n", .{});
         try stderr_writer.flush();
         std.process.exit(64);
     } else if (args.len == 2) {
         const filename = args[1];
-        try Lox.runFile(gpa, io, stdout_writer, reporter, filename);
+        try lox.runFile(gpa, io, stdout_writer, reporter, filename);
     } else {
         var stdin_buffer: [1024]u8 = undefined;
         var stdin_file_reader = std.Io.File.stdin().reader(io, &stdin_buffer);
         const stdin_reader = &stdin_file_reader.interface;
-        try Lox.runPrompt(gpa, stdout_writer, stdin_reader, reporter);
+        try lox.runPrompt(gpa, stdout_writer, stdin_reader, reporter);
     }
 }
 

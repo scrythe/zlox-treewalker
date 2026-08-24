@@ -29,7 +29,7 @@ pub fn init(expressions: []const Expression, program_statements: []const Stateme
 pub fn printProgramStatements(self: *const AstPrinter, stdout_writer: *std.Io.Writer) std.Io.Writer.Error!void {
     for (self.program_statements) |program_statement| {
         try self.printStatement(stdout_writer, program_statement, 0);
-        try stdout_writer.print("\n", .{});
+        // try stdout_writer.print("\n", .{});
     }
     try stdout_writer.flush();
 }
@@ -62,13 +62,21 @@ pub fn printStatement(self: *const AstPrinter, stdout_writer: *std.Io.Writer, st
         },
         .ExpressionStmt => |expressionStmt| {
             try self.printExpression(stdout_writer, expressionStmt.exprId);
-            try stdout_writer.print(";", .{});
+            try stdout_writer.print(";\n", .{});
+            for (0..block_depth) |_| {
+                try stdout_writer.print(" ", .{});
+            }
         },
         .IfStmt => |ifStmt| {
             _ = ifStmt; // autofix
         },
         .PrintStmt => |printStmt| {
-            _ = printStmt; // autofix
+            try stdout_writer.print("print ", .{});
+            try self.printExpression(stdout_writer, printStmt.exprId);
+            try stdout_writer.print(";\n", .{});
+            for (0..block_depth) |_| {
+                try stdout_writer.print(" ", .{});
+            }
         },
         .VarDeclStmt => |varDeclStmt| {
             try stdout_writer.print("var {s} = ", .{varDeclStmt.varName});

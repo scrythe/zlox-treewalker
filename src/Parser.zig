@@ -166,7 +166,7 @@ fn parsePrintStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_stat
     const exprId = try self.parseExpression(gpa, reporter);
     const printStmtValue = Statements.PrintStmt{ .exprId = exprId };
     const printStmt = Statement{ .PrintStmt = printStmtValue };
-    const printStmtId = self.addStatement(gpa, printStmt, global_statement);
+    const printStmtId = try self.addStatement(gpa, printStmt, global_statement);
     const token = self.tokens[self.current];
     try self.checkTokenTypeAndConsumeOnNoError(reporter, .Semicolon, "Expect ';' after value.", token);
     return printStmtId;
@@ -242,6 +242,7 @@ fn parseForStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_statem
     const rightParenToken = self.tokens[self.current];
     try self.checkTokenTypeAndConsumeOnNoError(reporter, TokenType.RightParen, "Expect ')' after for clauses.", rightParenToken);
 
+    const forStmtId: StmtId = @intCast(self.scoped_statements.items.len);
     const forStmtRef = try self.scoped_statements.addOne(gpa);
     const initAndBodyStmtEnd: StmtId = @intCast(self.scoped_statements.items.len);
     const initAndBodyStmtValue = Statements.BlockStmt{ .start = initAndBodyStmtStart, .endExclusive = initAndBodyStmtEnd };
@@ -269,7 +270,7 @@ fn parseForStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_statem
     const forStmt = Statement{ .WhileStmt = forStmtValue };
 
     forStmtRef.* = forStmt;
-    return 0; // TODO:
+    return forStmtId;
 }
 
 /// "{" declaration* "}"
