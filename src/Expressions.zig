@@ -2,7 +2,13 @@ const Scanner = @import("Scanner.zig");
 const std = @import("std");
 
 pub const ExprId = u32;
-pub const LiteralValue = union(enum) { None, String: []const u8, Number: f32, Bool: bool };
+pub const LiteralValue = union(enum) { None, String: []const u8, Number: f32, Bool: bool, Function: Function };
+pub const Function = struct {
+    pub fn call(self: *Function) LiteralValue {
+        _ = self; // autofix
+        return LiteralValue{ .Number = 5 };
+    }
+};
 
 pub const BinaryExpr = struct {
     left: ExprId,
@@ -26,7 +32,7 @@ pub const LiteralExpr = struct { value: LiteralValue };
 pub const Logical = struct { left: ExprId, operator: Scanner.TokenType, right: ExprId };
 pub const VariableExpr = struct { varName: []const u8, line: u32 };
 pub const AssignmentExpr = struct { varName: []const u8, valueExprId: ExprId, line: u32 };
-pub const CallExpr = struct { callee: ExprId, argListStart: ExprId, argListExclusiveEnd: ExprId };
+pub const CallExpr = struct { calleeExprId: ExprId, argListStart: ExprId, argListExclusiveEnd: ExprId };
 
 pub const Expression = union(enum) {
     BinaryExpr: BinaryExpr,

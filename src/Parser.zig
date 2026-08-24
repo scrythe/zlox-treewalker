@@ -461,16 +461,18 @@ fn parseCall(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprI
         self.current += 1;
 
         const argListStart: ExprId = @intCast(self.arguments_list.items.len);
-        while (true) {
-            const argExprId = try self.parseExpression(gpa, reporter);
-            try self.arguments_list.append(gpa, argExprId);
+        if (self.tokens[self.current].tokenType != .RightParen) {
+            while (true) {
+                const argExprId = try self.parseExpression(gpa, reporter);
+                try self.arguments_list.append(gpa, argExprId);
 
-            if (self.tokens[self.current].tokenType != .Comma) break;
+                if (self.tokens[self.current].tokenType != .Comma) break;
 
-            self.current += 1;
+                self.current += 1;
+            }
         }
         const argListrEnd: ExprId = @intCast(self.arguments_list.items.len);
-        const callExprValue = Expressions.CallExpr{ .callee = calleeExprId, .argListStart = argListStart, .argListExclusiveEnd = argListrEnd };
+        const callExprValue = Expressions.CallExpr{ .calleeExprId = calleeExprId, .argListStart = argListStart, .argListExclusiveEnd = argListrEnd };
         const callExpr = Expression{ .CallExpr = callExprValue };
         calleeExprId = try self.addExpression(gpa, callExpr);
 

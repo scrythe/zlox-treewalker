@@ -22,9 +22,10 @@ pub fn main(init: std.process.Init) !void {
     const args = try init.minimal.args.toSlice(gpa);
     defer gpa.free(args); // maybe error? no arena
 
-    var lox: Lox = undefined;
-    Lox.init(gpa, &lox);
-    defer lox.deinit();
+    var lox_arena = std.heap.ArenaAllocator.init(gpa);
+    const lox_arena_allocator = lox_arena.allocator();
+    defer lox_arena.deinit();
+    var lox = try Lox.init(lox_arena_allocator);
     if (args.len > 2) {
         try stderr_writer.print("Usage: jlox [script]\n", .{});
         try stderr_writer.flush();

@@ -7,18 +7,21 @@ const Environment = @import("Environment.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Interpreter = @import("Interpreter.zig");
 const ArenaAllocator = std.heap.ArenaAllocator;
+const Expressions = @import("Expressions.zig");
 
 pub const Error = error{ CompileError, RuntimeError };
 
 global_environment: Environment,
-global_arena: ArenaAllocator,
-global_arena_allocator: Allocator,
+global_arena: Allocator,
 pub const Lox = @This();
 
-pub fn init(gpa: Allocator, lox: *Lox) void {
-    lox.global_environment = Environment.init(gpa);
-    lox.global_arena = std.heap.ArenaAllocator.init(gpa);
-    lox.global_arena_allocator = lox.global_arena.allocator();
+pub fn init(arena: Allocator) !Lox {
+    var global_environment = Environment.init(arena);
+    try global_environment.define(arena, "clock", Expressions.LiteralValue{ .Function = .{} });
+    return Lox{
+        .global_environment = global_environment,
+        .global_arena = arena,
+    };
 }
 
 pub fn deinit(self: *Lox) void {
@@ -87,5 +90,5 @@ pub fn run(self: *Lox, gpa: Allocator, stdout_writer: *std.Io.Writer, reporter: 
     const arena = arena_instance.allocator();
     var interpreter = Interpreter.init(&self.global_environment, parser.expressions.items, parser.program_statements.items, parser.scoped_statements.items);
     // defer interpreter.deinit();
-    try interpreter.interpret(self.global_arena_allocator, arena, stdout_writer, reporter);
+    try interpreter.interpret(self.global_arena, arena, stdout_writer, reporter);
 }

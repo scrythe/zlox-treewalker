@@ -59,6 +59,8 @@ pub fn execute(self: *Interpreter, global_arena: Allocator, arena: Allocator, in
                 .Bool => |boolVal| try interpreterPrinter.print("{}\n", .{boolVal}),
                 .Number => |number| try interpreterPrinter.print("{d}\n", .{number}),
                 .String => |string| try interpreterPrinter.print("\"{s}\"\n", .{string}),
+                // TODO:
+                .Function => unreachable,
             }
             try interpreterPrinter.flush();
         },
@@ -181,8 +183,9 @@ pub fn evaluate(self: *Interpreter, arena: Allocator, reporter: Reporter, exprId
             return value;
         },
         .CallExpr => |callExpr| {
-            _ = callExpr; // autofix
-            unreachable; // TODO:
+            var callee = try self.evaluate(arena, reporter, callExpr.calleeExprId);
+            // TODO:
+            return callee.Function.call();
         },
     };
 }
@@ -201,6 +204,8 @@ fn equals(left: LiteralValue, right: LiteralValue) bool {
         .String => return std.mem.eql(u8, left.String, right.String),
         .Bool => return left.Bool == right.Bool,
         .None => return left.None == right.None,
+        // TODO:
+        .Function => unreachable,
     }
     unreachable;
 }

@@ -109,6 +109,8 @@ pub fn printExpression(self: *const AstPrinter, stdout_writer: *std.Io.Writer, e
                 .Bool => |boolVal| try stdout_writer.print("{}", .{boolVal}),
                 .Number => |number| try stdout_writer.print("{d}", .{number}),
                 .String => |string| try stdout_writer.print("\"{s}\"", .{string}),
+                // TODO:
+                .Function => unreachable,
             }
         },
         .Logical => |logical| {
@@ -126,13 +128,16 @@ pub fn printExpression(self: *const AstPrinter, stdout_writer: *std.Io.Writer, e
             try self.printExpression(stdout_writer, assignmentExpr.valueExprId);
         },
         .CallExpr => |callExpr| {
-            try self.printExpression(stdout_writer, callExpr.callee);
+            try self.printExpression(stdout_writer, callExpr.calleeExprId);
             try stdout_writer.print("(", .{});
-            try self.printExpression(stdout_writer, self.arguments_list[callExpr.argListStart]);
 
-            for (self.arguments_list[callExpr.argListStart + 1 .. callExpr.argListExclusiveEnd]) |argExprId| {
-                try stdout_writer.print(",", .{});
-                try self.printExpression(stdout_writer, @intCast(argExprId));
+            if (callExpr.argListStart < callExpr.argListExclusiveEnd) {
+                try self.printExpression(stdout_writer, self.arguments_list[callExpr.argListStart]);
+
+                for (self.arguments_list[callExpr.argListStart + 1 .. callExpr.argListExclusiveEnd]) |argExprId| {
+                    try stdout_writer.print(",", .{});
+                    try self.printExpression(stdout_writer, @intCast(argExprId));
+                }
             }
             try stdout_writer.print(")", .{});
         },
