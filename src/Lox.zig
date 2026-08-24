@@ -79,8 +79,8 @@ pub fn run(self: *Lox, gpa: Allocator, stdout_writer: *std.Io.Writer, reporter: 
         return;
     }
 
-    // const prettyPrinter = PrettyPrinter.init(parser.expressions.items, parser.program_statements.items, parser.scoped_statements.items);
-    // try prettyPrinter.printProgramStatements(stdout_writer);
+    const prettyPrinter = PrettyPrinter.init(parser.expressions.items, parser.program_statements.items, parser.scoped_statements.items, parser.arguments_list.items);
+    try prettyPrinter.printProgramStatements(stdout_writer);
 
     var arena_instance = ArenaAllocator.init(gpa);
     defer arena_instance.deinit();

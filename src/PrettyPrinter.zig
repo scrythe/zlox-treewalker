@@ -11,12 +11,14 @@ const AstPrinter = @This();
 expressions: []const Expression,
 program_statements: []const Statement,
 scoped_statements: []const Statement,
+arguments_list: []const ExprId,
 
-pub fn init(expressions: []const Expression, program_statements: []const Statement, scoped_statements: []const Statement) AstPrinter {
+pub fn init(expressions: []const Expression, program_statements: []const Statement, scoped_statements: []const Statement, arguments_list: []const ExprId) AstPrinter {
     return AstPrinter{
         .expressions = expressions,
         .program_statements = program_statements,
         .scoped_statements = scoped_statements,
+        .arguments_list = arguments_list,
     };
 }
 
@@ -122,6 +124,17 @@ pub fn printExpression(self: *const AstPrinter, stdout_writer: *std.Io.Writer, e
         .AssignmentExpr => |assignmentExpr| {
             try stdout_writer.print("{s} = ", .{assignmentExpr.varName});
             try self.printExpression(stdout_writer, assignmentExpr.valueExprId);
+        },
+        .CallExpr => |callExpr| {
+            try self.printExpression(stdout_writer, callExpr.callee);
+            try stdout_writer.print("(", .{});
+            try self.printExpression(stdout_writer, self.arguments_list[callExpr.argListStart]);
+
+            for (self.arguments_list[callExpr.argListStart + 1 .. callExpr.argListExclusiveEnd]) |argExprId| {
+                try stdout_writer.print(",", .{});
+                try self.printExpression(stdout_writer, @intCast(argExprId));
+            }
+            try stdout_writer.print(")", .{});
         },
     }
 }

@@ -27,11 +27,13 @@ current: u32,
 expressions: std.ArrayList(Expression),
 program_statements: StatementsArray,
 scoped_statements: StatementsArray,
+arguments_list: std.ArrayList(ExprId),
 
 pub fn init(gpa: Allocator, code: []const u8, tokens: []const Scanner.Token) ParseError!Parser {
     const expressions = try std.ArrayList(Expression).initCapacity(gpa, tokens.len);
     const program_statements = try StatementsArray.initCapacity(gpa, tokens.len);
     const scoped_statements = try StatementsArray.initCapacity(gpa, tokens.len);
+    const arguments_list = try std.ArrayList(ExprId).initCapacity(gpa, tokens.len);
     return Parser{
         .code = code,
         .tokens = tokens,
@@ -39,6 +41,7 @@ pub fn init(gpa: Allocator, code: []const u8, tokens: []const Scanner.Token) Par
         .expressions = expressions,
         .program_statements = program_statements,
         .scoped_statements = scoped_statements,
+        .arguments_list = arguments_list,
     };
 }
 
@@ -46,6 +49,7 @@ pub fn deinit(self: *Parser, gpa: Allocator) void {
     self.expressions.deinit(gpa);
     self.program_statements.deinit(gpa);
     self.scoped_statements.deinit(gpa);
+    self.arguments_list.deinit(gpa);
 }
 
 /// program -> delcaration EOF
@@ -436,7 +440,7 @@ fn parseFactor(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!Exp
 }
 
 /// unary -> ( "!" | "-" ) unary
-///         | primary
+///         | call
 fn parseUnary(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
     const token = self.tokens[self.current];
     if (equalsTokenTypes(token.tokenType, &.{ TokenType.Bang, TokenType.Minus })) {
@@ -446,7 +450,37 @@ fn parseUnary(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!Expr
         const totalUnaryExpr = Expression{ .UnaryExpr = totalUnaryExprValue };
         return self.addExpression(gpa, totalUnaryExpr);
     }
-    return self.parsePrimary(gpa, reporter);
+    return self.parseCall(gpa, reporter);
+}
+
+// call -> primary ( "(" arguments? ")" )*
+fn parseCall(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
+    var calleeExprId = try self.parsePrimary(gpa, reporter);
+    var leftParenToken = self.tokens[self.current];
+    while (leftParenToken.tokenType == .LeftParen) {
+        self.current += 1;
+
+        const argListStart: ExprId = @intCast(self.arguments_list.items.len);
+        while (true) {
+            const argExprId = try self.parseExpression(gpa, reporter);
+            try self.arguments_list.append(gpa, argExprId);
+
+            if (self.tokens[self.current].tokenType != .Comma) break;
+
+            self.current += 1;
+        }
+        const argListrEnd: ExprId = @intCast(self.arguments_list.items.len);
+        const callExprValue = Expressions.CallExpr{ .callee = calleeExprId, .argListStart = argListStart, .argListExclusiveEnd = argListrEnd };
+        const callExpr = Expression{ .CallExpr = callExprValue };
+        calleeExprId = try self.addExpression(gpa, callExpr);
+
+        const rightParenToken = self.tokens[self.current];
+        try self.checkTokenTypeAndConsumeOnNoError(reporter, .RightParen, "Expect ')' after arguments.", rightParenToken);
+
+        leftParenToken = self.tokens[self.current];
+    }
+
+    return calleeExprId;
 }
 
 /// primary -> Number | String | "true" | "false" | "nil"

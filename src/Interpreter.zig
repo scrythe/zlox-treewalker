@@ -180,6 +180,10 @@ pub fn evaluate(self: *Interpreter, arena: Allocator, reporter: Reporter, exprId
             try self.environment.assign(reporter, arena, assignmentExpr.varName, value, assignmentExpr.line);
             return value;
         },
+        .CallExpr => |callExpr| {
+            _ = callExpr; // autofix
+            unreachable; // TODO:
+        },
     };
 }
 
