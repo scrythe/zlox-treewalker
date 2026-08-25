@@ -456,6 +456,7 @@ fn parseUnary(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!Expr
 // call -> primary ( "(" arguments? ")" )*
 fn parseCall(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
     var calleeExprId = try self.parsePrimary(gpa, reporter);
+    var calleeExprLine: u32 = @intCast(self.tokens[self.current].line);
     var leftParenToken = self.tokens[self.current];
     while (leftParenToken.tokenType == .LeftParen) {
         self.current += 1;
@@ -472,9 +473,10 @@ fn parseCall(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprI
             }
         }
         const argListrEnd: ExprId = @intCast(self.arguments_list.items.len);
-        const callExprValue = Expressions.CallExpr{ .calleeExprId = calleeExprId, .argListStart = argListStart, .argListExclusiveEnd = argListrEnd };
+        const callExprValue = Expressions.CallExpr{ .calleeExprId = calleeExprId, .argListStart = argListStart, .argListExclusiveEnd = argListrEnd, .line = calleeExprLine };
         const callExpr = Expression{ .CallExpr = callExprValue };
         calleeExprId = try self.addExpression(gpa, callExpr);
+        calleeExprLine = @intCast(self.tokens[self.current].line);
 
         const rightParenToken = self.tokens[self.current];
         try self.checkTokenTypeAndConsumeOnNoError(reporter, .RightParen, "Expect ')' after arguments.", rightParenToken);

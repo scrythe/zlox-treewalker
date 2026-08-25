@@ -13,16 +13,24 @@ const LiteralValue = Expressions.LiteralValue;
 expressions: []const Expression,
 program_statements: []const Statement,
 scoped_statements: []const Statement,
+arguments_list: []const Expressions.ExprId,
 environment: *Environment,
 const Interpreter = @This();
 
 pub const Error = Lox.Error || std.Io.Writer.Error || Allocator.Error;
 
-pub fn init(global_environment: *Environment, expresssions: []const Expression, program_statements: []const Statement, scoped_statements: []const Statement) Interpreter {
+pub fn init(
+    global_environment: *Environment,
+    expresssions: []const Expression,
+    program_statements: []const Statement,
+    scoped_statements: []const Statement,
+    arguments_list: []const Expressions.ExprId,
+) !Interpreter {
     return Interpreter{
         .expressions = expresssions,
         .program_statements = program_statements,
         .scoped_statements = scoped_statements,
+        .arguments_list = arguments_list,
         .environment = global_environment,
     };
 }
@@ -184,6 +192,23 @@ pub fn evaluate(self: *Interpreter, arena: Allocator, reporter: Reporter, exprId
         },
         .CallExpr => |callExpr| {
             var callee = try self.evaluate(arena, reporter, callExpr.calleeExprId);
+            if (callee != .Function) {
+                try reporter.reportRuntimeError("Can only call functions and classes", callExpr.line);
+                return Error.RuntimeError;
+            } else {
+                const args_len = callExpr.argListExclusiveEnd - callExpr.argListStart;
+                if (args_len != callee.Function.arity) {
+                    try reporter.reportRuntimeErrorUnequalFunctionParametersAndArity(callee.Function.arity, args_len, callExpr.line);
+                    return Error.RuntimeError;
+                } else {
+                    const eval_args = try arena.alloc(LiteralValue, args_len);
+                    for (self.arguments_list[callExpr.argListStart..callExpr.argListExclusiveEnd], 0..) |callExprId, i| {
+                        const arg_literal_value = try self.evaluate(arena, reporter, callExprId);
+                        eval_args[i] = arg_literal_value;
+                    }
+                    return callee.Function.call(eval_args);
+                }
+            }
             // TODO:
             return callee.Function.call();
         },
