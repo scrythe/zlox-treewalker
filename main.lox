@@ -1,13 +1,10 @@
-//a(1, 2+3, 4);
-// var a = "hm";
-// print a;
-// for (var i = 0; i < 5; i = i + 1) print i;
-// for (; i < 5; i = i + 1) print i;
+var start = clock();
+for (var i = 0; i < 5; i = i + 1) print i;
 
+fun test(a, b) { print a+b; }
 
-fun testFun(a, hm) { print a; }
+test(2, 2);
 
-print testFun("test", 2);
+var end = clock();
 
-print test("hm");
-
+print end - start;

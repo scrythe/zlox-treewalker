@@ -7,6 +7,7 @@ const Reporter = @import("Reporter.zig");
 const Lox = @import("Lox.zig");
 const Environment = @import("Environment.zig");
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 
 const LiteralValue = Expressions.LiteralValue;
 
@@ -42,28 +43,28 @@ pub fn init(
 //     self.environment.deinit();
 // }
 
-pub fn interpret(self: *Interpreter, global_arena: Allocator, arena: Allocator, interpreterPrinter: *std.Io.Writer, reporter: Reporter) Error!void {
+pub fn interpret(self: *Interpreter, io: Io, global_arena: Allocator, arena: Allocator, interpreterPrinter: *std.Io.Writer, reporter: Reporter) Error!void {
     for (self.program_statements) |statement| {
-        try self.execute(global_arena, arena, interpreterPrinter, reporter, statement);
+        try self.execute(io, global_arena, arena, interpreterPrinter, reporter, statement);
     }
 }
 
-pub fn execute(self: *Interpreter, global_arena: Allocator, arena: Allocator, interpreterPrinter: *std.Io.Writer, reporter: Reporter, statement: Statement) Error!void {
+pub fn execute(self: *Interpreter, io: Io, global_arena: Allocator, arena: Allocator, interpreterPrinter: *std.Io.Writer, reporter: Reporter, statement: Statement) Error!void {
     switch (statement) {
         .IfStmt => |ifStmt| {
-            const condition = try self.evaluate(arena, interpreterPrinter, reporter, ifStmt.conditionExprId);
+            const condition = try self.evaluate(io, arena, interpreterPrinter, reporter, ifStmt.conditionExprId);
             if (isTruthy(condition)) {
                 const thenBranch = self.scoped_statements[ifStmt.thenBranchId];
-                try self.execute(global_arena, arena, interpreterPrinter, reporter, thenBranch);
+                try self.execute(io, global_arena, arena, interpreterPrinter, reporter, thenBranch);
             } else {
                 if (ifStmt.elseBranchId) |elseBranchId| {
                     const elseBranch = self.scoped_statements[elseBranchId];
-                    try self.execute(global_arena, arena, interpreterPrinter, reporter, elseBranch);
+                    try self.execute(io, global_arena, arena, interpreterPrinter, reporter, elseBranch);
                 }
             }
         },
         .PrintStmt => |printStmt| {
-            const value = try self.evaluate(arena, interpreterPrinter, reporter, printStmt.exprId);
+            const value = try self.evaluate(io, arena, interpreterPrinter, reporter, printStmt.exprId);
 
             switch (value) {
                 .None => try interpreterPrinter.print("None\n", .{}),
@@ -79,16 +80,16 @@ pub fn execute(self: *Interpreter, global_arena: Allocator, arena: Allocator, in
             var condition = true;
             while (condition) {
                 const bodyStmt = self.scoped_statements[whileStmt.bodyStmtId];
-                try self.execute(global_arena, arena, interpreterPrinter, reporter, bodyStmt);
-                const conditionLiteral = try self.evaluate(arena, interpreterPrinter, reporter, whileStmt.conditionExprId);
+                try self.execute(io, global_arena, arena, interpreterPrinter, reporter, bodyStmt);
+                const conditionLiteral = try self.evaluate(io, arena, interpreterPrinter, reporter, whileStmt.conditionExprId);
                 condition = isTruthy(conditionLiteral);
             }
         },
         .ExpressionStmt => |expressionStmt| {
-            _ = try self.evaluate(arena, interpreterPrinter, reporter, expressionStmt.exprId);
+            _ = try self.evaluate(io, arena, interpreterPrinter, reporter, expressionStmt.exprId);
         },
         .VarDeclStmt => |varDeclStmt| {
-            const value = try self.evaluate(arena, interpreterPrinter, reporter, varDeclStmt.valueExprId);
+            const value = try self.evaluate(io, arena, interpreterPrinter, reporter, varDeclStmt.valueExprId);
             try self.environment.define(global_arena, varDeclStmt.varName, value);
         },
         .FunDeclStmt => |funDeclStmt| {
@@ -111,7 +112,7 @@ pub fn execute(self: *Interpreter, global_arena: Allocator, arena: Allocator, in
             var indexOfStmtInBlock = blockStmt.start;
             while (indexOfStmtInBlock < blockStmt.endExclusive) : (indexOfStmtInBlock += 1) {
                 const stmtInBlock = self.scoped_statements[indexOfStmtInBlock];
-                try self.execute(global_arena, arena, interpreterPrinter, reporter, stmtInBlock);
+                try self.execute(io, global_arena, arena, interpreterPrinter, reporter, stmtInBlock);
                 if (stmtInBlock == .BlockStmt) {
                     indexOfStmtInBlock = stmtInBlock.BlockStmt.endExclusive - 1;
                 }
@@ -121,11 +122,11 @@ pub fn execute(self: *Interpreter, global_arena: Allocator, arena: Allocator, in
     }
 }
 
-pub fn evaluate(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.Io.Writer, reporter: Reporter, exprId: Expressions.ExprId) Error!LiteralValue {
+pub fn evaluate(self: *Interpreter, io: Io, arena: Allocator, interpreterPrinter: *std.Io.Writer, reporter: Reporter, exprId: Expressions.ExprId) Error!LiteralValue {
     return switch (self.expressions[exprId]) {
         .BinaryExpr => |binaryExpr| {
-            const left = try self.evaluate(arena, interpreterPrinter, reporter, binaryExpr.left);
-            const right = try self.evaluate(arena, interpreterPrinter, reporter, binaryExpr.right);
+            const left = try self.evaluate(io, arena, interpreterPrinter, reporter, binaryExpr.left);
+            const right = try self.evaluate(io, arena, interpreterPrinter, reporter, binaryExpr.right);
             switch (binaryExpr.operator) {
                 .BangEqual => return LiteralValue{ .Bool = !equals(left, right) },
                 .EqualEqual => return LiteralValue{ .Bool = equals(left, right) },
@@ -171,21 +172,21 @@ pub fn evaluate(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.I
             }
         },
         .GroupingExpr => |groupingExpr| {
-            return self.evaluate(arena, interpreterPrinter, reporter, groupingExpr.exprId);
+            return self.evaluate(io, arena, interpreterPrinter, reporter, groupingExpr.exprId);
         },
         .LiteralExpr => |literalExpr| literalExpr.value,
         .Logical => |logical| {
-            const left = try self.evaluate(arena, interpreterPrinter, reporter, logical.left);
+            const left = try self.evaluate(io, arena, interpreterPrinter, reporter, logical.left);
             if (!isTruthy(left) and logical.operator == .And) {
                 return LiteralValue{ .Bool = false };
             } else if (isTruthy(left) and logical.operator == .Or) {
                 return LiteralValue{ .Bool = true };
             } else {
-                return try self.evaluate(arena, interpreterPrinter, reporter, logical.right);
+                return try self.evaluate(io, arena, interpreterPrinter, reporter, logical.right);
             }
         },
         .UnaryExpr => |unaryExpr| {
-            const right = try self.evaluate(arena, interpreterPrinter, reporter, unaryExpr.right);
+            const right = try self.evaluate(io, arena, interpreterPrinter, reporter, unaryExpr.right);
             switch (unaryExpr.operator) {
                 .Bang => return LiteralValue{ .Bool = !isTruthy(right) },
                 .Minus => {
@@ -200,12 +201,12 @@ pub fn evaluate(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.I
         },
         .VariableExpr => |variableExpr| try self.environment.get(reporter, variableExpr.varName, variableExpr.line),
         .AssignmentExpr => |assignmentExpr| {
-            const value = try self.evaluate(arena, interpreterPrinter, reporter, assignmentExpr.valueExprId);
+            const value = try self.evaluate(io, arena, interpreterPrinter, reporter, assignmentExpr.valueExprId);
             try self.environment.assign(reporter, arena, assignmentExpr.varName, value, assignmentExpr.line);
             return value;
         },
         .CallExpr => |callExpr| {
-            var callee = try self.evaluate(arena, interpreterPrinter, reporter, callExpr.calleeExprId);
+            var callee = try self.evaluate(io, arena, interpreterPrinter, reporter, callExpr.calleeExprId);
             if (callee != .Function) {
                 try reporter.reportRuntimeError("Can only call functions and classes", callExpr.line);
                 return Error.RuntimeError;
@@ -217,7 +218,7 @@ pub fn evaluate(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.I
                 } else {
                     const eval_args = try arena.alloc(LiteralValue, args_len);
                     for (self.arguments_list[callExpr.argListStart..callExpr.argListExclusiveEnd], 0..) |callExprId, i| {
-                        const arg_literal_value = try self.evaluate(arena, interpreterPrinter, reporter, callExprId);
+                        const arg_literal_value = try self.evaluate(io, arena, interpreterPrinter, reporter, callExprId);
                         eval_args[i] = arg_literal_value;
                     }
                     const calleeObj = &callee.Function;
@@ -239,7 +240,7 @@ pub fn evaluate(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.I
                             while (indexOfStmtInBlock < functionBody.endExclusive) : (indexOfStmtInBlock += 1) {
                                 const stmtInBlock = self.scoped_statements[indexOfStmtInBlock];
                                 // TODO: global_arena instead of arena?
-                                try self.execute(arena, arena, interpreterPrinter, reporter, stmtInBlock);
+                                try self.execute(io, arena, arena, interpreterPrinter, reporter, stmtInBlock);
                                 if (stmtInBlock == .BlockStmt) {
                                     indexOfStmtInBlock = stmtInBlock.BlockStmt.endExclusive - 1;
                                 }
@@ -250,7 +251,7 @@ pub fn evaluate(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.I
                             return LiteralValue{ .Number = 3 };
                         },
                         .NativeFunction => |nativeFunction| {
-                            return nativeFunction(calleeObj, eval_args);
+                            return nativeFunction(calleeObj, io, eval_args);
                         },
                     }
                 }

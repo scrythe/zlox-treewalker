@@ -37,7 +37,7 @@ pub fn main(init: std.process.Init) !void {
         var stdin_buffer: [1024]u8 = undefined;
         var stdin_file_reader = std.Io.File.stdin().reader(io, &stdin_buffer);
         const stdin_reader = &stdin_file_reader.interface;
-        try lox.runPrompt(gpa, stdout_writer, stdin_reader, reporter);
+        try lox.runPrompt(io, gpa, stdout_writer, stdin_reader, reporter);
     }
 }
 

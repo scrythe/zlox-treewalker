@@ -8,6 +8,7 @@ const PrettyPrinter = @import("PrettyPrinter.zig");
 const Interpreter = @import("Interpreter.zig");
 const ArenaAllocator = std.heap.ArenaAllocator;
 const Expressions = @import("Expressions.zig");
+const Io = std.Io;
 
 pub const Error = error{ CompileError, RuntimeError };
 
@@ -21,14 +22,7 @@ pub fn init(arena: Allocator) !Lox {
         .arity = 0,
         .parameters_start = 0,
         .parameters_end_exclusive = 0,
-        .callable = .{ .NativeFunction = testFun },
-    } });
-    // TODO: remove test
-    try global_environment.define(arena, "test", Expressions.LiteralValue{ .Function = .{
-        .arity = 1,
-        .parameters_start = 0,
-        .parameters_end_exclusive = 0,
-        .callable = .{ .NativeFunction = testFun },
+        .callable = .{ .NativeFunction = clockFn },
     } });
     return Lox{
         .global_environment = global_environment,
@@ -36,10 +30,14 @@ pub fn init(arena: Allocator) !Lox {
     };
 }
 
-fn testFun(self: *Expressions.Function, arguments: []const Expressions.LiteralValue) Expressions.LiteralValue {
+fn clockFn(self: *Expressions.Function, io: Io, arguments: []const Expressions.LiteralValue) Expressions.LiteralValue {
     _ = self; // autofix
     _ = arguments; // autofix
-    return Expressions.LiteralValue{ .Number = 2 };
+    const nanoseconds = std.Io.Clock.real.now(io).nanoseconds;
+    const nanoseconds_f64: f64 = @floatFromInt(nanoseconds);
+    const ns_per_s: f64 = @floatFromInt(std.time.ns_per_s);
+    const seconds: f64 = @floatCast(nanoseconds_f64 / ns_per_s);
+    return Expressions.LiteralValue{ .Number = seconds };
 }
 
 pub fn deinit(self: *Lox) void {
@@ -50,7 +48,7 @@ pub fn deinit(self: *Lox) void {
 pub fn runFile(self: *Lox, gpa: Allocator, io: std.Io, stdout_writer: *std.Io.Writer, reporter: Reporter, filename: []const u8) !void {
     var buffer: [1024]u8 = undefined;
     const file = try std.Io.Dir.cwd().readFile(io, filename, &buffer);
-    self.run(gpa, stdout_writer, reporter, file) catch |err| {
+    self.run(io, gpa, stdout_writer, reporter, file) catch |err| {
         switch (err) {
             Error.CompileError => std.process.exit(65),
             Error.RuntimeError => std.process.exit(70),
@@ -59,13 +57,13 @@ pub fn runFile(self: *Lox, gpa: Allocator, io: std.Io, stdout_writer: *std.Io.Wr
     };
 }
 
-pub fn runPrompt(self: *Lox, gpa: Allocator, stdout_writer: *std.Io.Writer, stdin_reader: *std.Io.Reader, reporter: Reporter) !void {
+pub fn runPrompt(self: *Lox, io: Io, gpa: Allocator, stdout_writer: *std.Io.Writer, stdin_reader: *std.Io.Reader, reporter: Reporter) !void {
     while (true) {
         try stdout_writer.print("> ", .{});
         try stdout_writer.flush();
         const line = try stdin_reader.takeDelimiter('\n');
         if (line) |line_value| {
-            self.run(gpa, stdout_writer, reporter, line_value) catch |err| {
+            self.run(io, gpa, stdout_writer, reporter, line_value) catch |err| {
                 switch (err) {
                     Interpreter.Error.RuntimeError, Interpreter.Error.CompileError => continue,
                     else => return err,
@@ -79,7 +77,7 @@ pub fn runPrompt(self: *Lox, gpa: Allocator, stdout_writer: *std.Io.Writer, stdi
     }
 }
 
-pub fn run(self: *Lox, gpa: Allocator, stdout_writer: *std.Io.Writer, reporter: Reporter, code: []const u8) !void {
+pub fn run(self: *Lox, io: Io, gpa: Allocator, stdout_writer: *std.Io.Writer, reporter: Reporter, code: []const u8) !void {
     var scanner = try Scanner.init(gpa, code);
     defer scanner.deinit(gpa);
     var hasScanError = false;
@@ -100,13 +98,13 @@ pub fn run(self: *Lox, gpa: Allocator, stdout_writer: *std.Io.Writer, reporter: 
         return;
     }
 
-    // const prettyPrinter = PrettyPrinter.init(parser.expressions.items, parser.program_statements.items, parser.scoped_statements.items, parser.arguments_list.items, parser.parameters_list.items);
-    // try prettyPrinter.printProgramStatements(stdout_writer);
+    const prettyPrinter = PrettyPrinter.init(parser.expressions.items, parser.program_statements.items, parser.scoped_statements.items, parser.arguments_list.items, parser.parameters_list.items);
+    try prettyPrinter.printProgramStatements(stdout_writer);
 
     var arena_instance = ArenaAllocator.init(gpa);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
     var interpreter = try Interpreter.init(&self.global_environment, parser.expressions.items, parser.program_statements.items, parser.scoped_statements.items, parser.arguments_list.items, parser.parameters_list.items);
     // defer interpreter.deinit();
-    try interpreter.interpret(self.global_arena, arena, stdout_writer, reporter);
+    try interpreter.interpret(io, self.global_arena, arena, stdout_writer, reporter);
 }
