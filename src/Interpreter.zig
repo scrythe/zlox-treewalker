@@ -14,6 +14,7 @@ expressions: []const Expression,
 program_statements: []const Statement,
 scoped_statements: []const Statement,
 arguments_list: []const Expressions.ExprId,
+parameters_list: []const []const u8,
 environment: *Environment,
 const Interpreter = @This();
 
@@ -25,12 +26,14 @@ pub fn init(
     program_statements: []const Statement,
     scoped_statements: []const Statement,
     arguments_list: []const Expressions.ExprId,
+    parameters_list: []const []const u8,
 ) !Interpreter {
     return Interpreter{
         .expressions = expresssions,
         .program_statements = program_statements,
         .scoped_statements = scoped_statements,
         .arguments_list = arguments_list,
+        .parameters_list = parameters_list,
         .environment = global_environment,
     };
 }
@@ -48,7 +51,7 @@ pub fn interpret(self: *Interpreter, global_arena: Allocator, arena: Allocator, 
 pub fn execute(self: *Interpreter, global_arena: Allocator, arena: Allocator, interpreterPrinter: *std.Io.Writer, reporter: Reporter, statement: Statement) Error!void {
     switch (statement) {
         .IfStmt => |ifStmt| {
-            const condition = try self.evaluate(arena, reporter, ifStmt.conditionExprId);
+            const condition = try self.evaluate(arena, interpreterPrinter, reporter, ifStmt.conditionExprId);
             if (isTruthy(condition)) {
                 const thenBranch = self.scoped_statements[ifStmt.thenBranchId];
                 try self.execute(global_arena, arena, interpreterPrinter, reporter, thenBranch);
@@ -60,7 +63,7 @@ pub fn execute(self: *Interpreter, global_arena: Allocator, arena: Allocator, in
             }
         },
         .PrintStmt => |printStmt| {
-            const value = try self.evaluate(arena, reporter, printStmt.exprId);
+            const value = try self.evaluate(arena, interpreterPrinter, reporter, printStmt.exprId);
 
             switch (value) {
                 .None => try interpreterPrinter.print("None\n", .{}),
@@ -77,20 +80,25 @@ pub fn execute(self: *Interpreter, global_arena: Allocator, arena: Allocator, in
             while (condition) {
                 const bodyStmt = self.scoped_statements[whileStmt.bodyStmtId];
                 try self.execute(global_arena, arena, interpreterPrinter, reporter, bodyStmt);
-                const conditionLiteral = try self.evaluate(arena, reporter, whileStmt.conditionExprId);
+                const conditionLiteral = try self.evaluate(arena, interpreterPrinter, reporter, whileStmt.conditionExprId);
                 condition = isTruthy(conditionLiteral);
             }
         },
         .ExpressionStmt => |expressionStmt| {
-            _ = try self.evaluate(arena, reporter, expressionStmt.exprId);
+            _ = try self.evaluate(arena, interpreterPrinter, reporter, expressionStmt.exprId);
         },
         .VarDeclStmt => |varDeclStmt| {
-            const value = try self.evaluate(arena, reporter, varDeclStmt.valueExprId);
+            const value = try self.evaluate(arena, interpreterPrinter, reporter, varDeclStmt.valueExprId);
             try self.environment.define(global_arena, varDeclStmt.varName, value);
         },
         .FunDeclStmt => |funDeclStmt| {
             // TODO:
-            const func = LiteralValue{ .Function = .{ .arity = funDeclStmt.parameters_end - funDeclStmt.parameters_start } };
+            const func = LiteralValue{ .Function = .{
+                .arity = funDeclStmt.parameters_end_exclusive - funDeclStmt.parameters_start,
+                .parameters_start = funDeclStmt.parameters_start,
+                .parameters_end_exclusive = funDeclStmt.parameters_end_exclusive,
+                .callable = .{ .UserFunctionBody = funDeclStmt.funBlockStmtId },
+            } };
             try self.environment.define(arena, funDeclStmt.funName, func);
             // unreachable;
         },
@@ -113,11 +121,11 @@ pub fn execute(self: *Interpreter, global_arena: Allocator, arena: Allocator, in
     }
 }
 
-pub fn evaluate(self: *Interpreter, arena: Allocator, reporter: Reporter, exprId: Expressions.ExprId) Error!LiteralValue {
+pub fn evaluate(self: *Interpreter, arena: Allocator, interpreterPrinter: *std.Io.Writer, reporter: Reporter, exprId: Expressions.ExprId) Error!LiteralValue {
     return switch (self.expressions[exprId]) {
         .BinaryExpr => |binaryExpr| {
-            const left = try self.evaluate(arena, reporter, binaryExpr.left);
-            const right = try self.evaluate(arena, reporter, binaryExpr.right);
+            const left = try self.evaluate(arena, interpreterPrinter, reporter, binaryExpr.left);
+            const right = try self.evaluate(arena, interpreterPrinter, reporter, binaryExpr.right);
             switch (binaryExpr.operator) {
                 .BangEqual => return LiteralValue{ .Bool = !equals(left, right) },
                 .EqualEqual => return LiteralValue{ .Bool = equals(left, right) },
@@ -163,21 +171,21 @@ pub fn evaluate(self: *Interpreter, arena: Allocator, reporter: Reporter, exprId
             }
         },
         .GroupingExpr => |groupingExpr| {
-            return self.evaluate(arena, reporter, groupingExpr.exprId);
+            return self.evaluate(arena, interpreterPrinter, reporter, groupingExpr.exprId);
         },
         .LiteralExpr => |literalExpr| literalExpr.value,
         .Logical => |logical| {
-            const left = try self.evaluate(arena, reporter, logical.left);
+            const left = try self.evaluate(arena, interpreterPrinter, reporter, logical.left);
             if (!isTruthy(left) and logical.operator == .And) {
                 return LiteralValue{ .Bool = false };
             } else if (isTruthy(left) and logical.operator == .Or) {
                 return LiteralValue{ .Bool = true };
             } else {
-                return try self.evaluate(arena, reporter, logical.right);
+                return try self.evaluate(arena, interpreterPrinter, reporter, logical.right);
             }
         },
         .UnaryExpr => |unaryExpr| {
-            const right = try self.evaluate(arena, reporter, unaryExpr.right);
+            const right = try self.evaluate(arena, interpreterPrinter, reporter, unaryExpr.right);
             switch (unaryExpr.operator) {
                 .Bang => return LiteralValue{ .Bool = !isTruthy(right) },
                 .Minus => {
@@ -192,12 +200,12 @@ pub fn evaluate(self: *Interpreter, arena: Allocator, reporter: Reporter, exprId
         },
         .VariableExpr => |variableExpr| try self.environment.get(reporter, variableExpr.varName, variableExpr.line),
         .AssignmentExpr => |assignmentExpr| {
-            const value = try self.evaluate(arena, reporter, assignmentExpr.valueExprId);
+            const value = try self.evaluate(arena, interpreterPrinter, reporter, assignmentExpr.valueExprId);
             try self.environment.assign(reporter, arena, assignmentExpr.varName, value, assignmentExpr.line);
             return value;
         },
         .CallExpr => |callExpr| {
-            var callee = try self.evaluate(arena, reporter, callExpr.calleeExprId);
+            var callee = try self.evaluate(arena, interpreterPrinter, reporter, callExpr.calleeExprId);
             if (callee != .Function) {
                 try reporter.reportRuntimeError("Can only call functions and classes", callExpr.line);
                 return Error.RuntimeError;
@@ -209,14 +217,44 @@ pub fn evaluate(self: *Interpreter, arena: Allocator, reporter: Reporter, exprId
                 } else {
                     const eval_args = try arena.alloc(LiteralValue, args_len);
                     for (self.arguments_list[callExpr.argListStart..callExpr.argListExclusiveEnd], 0..) |callExprId, i| {
-                        const arg_literal_value = try self.evaluate(arena, reporter, callExprId);
+                        const arg_literal_value = try self.evaluate(arena, interpreterPrinter, reporter, callExprId);
                         eval_args[i] = arg_literal_value;
                     }
-                    return callee.Function.call(eval_args);
+                    const calleeObj = &callee.Function;
+                    switch (callee.Function.callable) {
+                        .UserFunctionBody => |userFunctionBody| {
+                            const parent_environment = self.environment;
+                            var new_environment = Environment.init(arena);
+                            self.environment = &new_environment;
+                            self.environment.enclosing = parent_environment;
+
+                            const parameters = self.parameters_list[calleeObj.parameters_start..calleeObj.parameters_end_exclusive];
+
+                            for (eval_args, 0..) |arg, i| {
+                                const parameter = parameters[i];
+                                try new_environment.define(arena, parameter, arg);
+                            }
+                            const functionBody = self.scoped_statements[userFunctionBody].BlockStmt;
+                            var indexOfStmtInBlock = functionBody.start;
+                            while (indexOfStmtInBlock < functionBody.endExclusive) : (indexOfStmtInBlock += 1) {
+                                const stmtInBlock = self.scoped_statements[indexOfStmtInBlock];
+                                // TODO: global_arena instead of arena?
+                                try self.execute(arena, arena, interpreterPrinter, reporter, stmtInBlock);
+                                if (stmtInBlock == .BlockStmt) {
+                                    indexOfStmtInBlock = stmtInBlock.BlockStmt.endExclusive - 1;
+                                }
+                            }
+
+                            self.environment = parent_environment;
+
+                            return LiteralValue{ .Number = 3 };
+                        },
+                        .NativeFunction => |nativeFunction| {
+                            return nativeFunction(calleeObj, eval_args);
+                        },
+                    }
                 }
             }
-            // TODO:
-            return callee.Function.call();
         },
     };
 }

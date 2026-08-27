@@ -17,13 +17,29 @@ pub const Lox = @This();
 
 pub fn init(arena: Allocator) !Lox {
     var global_environment = Environment.init(arena);
-    try global_environment.define(arena, "clock", Expressions.LiteralValue{ .Function = .{ .arity = 0 } });
+    try global_environment.define(arena, "clock", Expressions.LiteralValue{ .Function = .{
+        .arity = 0,
+        .parameters_start = 0,
+        .parameters_end_exclusive = 0,
+        .callable = .{ .NativeFunction = testFun },
+    } });
     // TODO: remove test
-    try global_environment.define(arena, "test", Expressions.LiteralValue{ .Function = .{ .arity = 1 } });
+    try global_environment.define(arena, "test", Expressions.LiteralValue{ .Function = .{
+        .arity = 1,
+        .parameters_start = 0,
+        .parameters_end_exclusive = 0,
+        .callable = .{ .NativeFunction = testFun },
+    } });
     return Lox{
         .global_environment = global_environment,
         .global_arena = arena,
     };
+}
+
+fn testFun(self: *Expressions.Function, arguments: []const Expressions.LiteralValue) Expressions.LiteralValue {
+    _ = self; // autofix
+    _ = arguments; // autofix
+    return Expressions.LiteralValue{ .Number = 2 };
 }
 
 pub fn deinit(self: *Lox) void {
@@ -90,7 +106,7 @@ pub fn run(self: *Lox, gpa: Allocator, stdout_writer: *std.Io.Writer, reporter: 
     var arena_instance = ArenaAllocator.init(gpa);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
-    var interpreter = try Interpreter.init(&self.global_environment, parser.expressions.items, parser.program_statements.items, parser.scoped_statements.items, parser.arguments_list.items);
+    var interpreter = try Interpreter.init(&self.global_environment, parser.expressions.items, parser.program_statements.items, parser.scoped_statements.items, parser.arguments_list.items, parser.parameters_list.items);
     // defer interpreter.deinit();
     try interpreter.interpret(self.global_arena, arena, stdout_writer, reporter);
 }

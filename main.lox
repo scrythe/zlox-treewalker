@@ -7,5 +7,7 @@
 
 fun testFun(a, hm) { print a; }
 
-testFun("hm", 2);
+print testFun("test", 2);
+
+print test("hm");
 

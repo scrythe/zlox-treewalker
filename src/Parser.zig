@@ -126,7 +126,7 @@ fn parseFunction(self: *Parser, gpa: Allocator, reporter: Reporter, global_state
 
     const funName = try self.getLexemeText(function_name_token, left_paren_token);
 
-    const funDeclStmtValue = Statements.FunDeclStmt{ .funName = funName, .parameters_start = parameters_start, .parameters_end = parameters_end, .funBlockStmtId = funBlockStmtId };
+    const funDeclStmtValue = Statements.FunDeclStmt{ .funName = funName, .parameters_start = parameters_start, .parameters_end_exclusive = parameters_end, .funBlockStmtId = funBlockStmtId };
     const funDeclStmt = Statement{ .FunDeclStmt = funDeclStmtValue };
 
     const funDeclStmtId = try self.addStatement(gpa, funDeclStmt, global_statement);

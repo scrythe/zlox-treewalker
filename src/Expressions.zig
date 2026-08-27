@@ -3,27 +3,51 @@ const std = @import("std");
 const Interpreter = @import("Interpreter.zig");
 const Allocator = std.mem.Allocator;
 const Reporter = @import("Reporter.zig");
+const Environment = @import("Environment.zig");
+
+pub const FunCallable = union(enum) {
+    NativeFunction: *const fn (self: *Function, arguments: []const LiteralValue) LiteralValue,
+    UserFunctionBody: u32,
+};
 
 pub const ExprId = u32;
 pub const LiteralValue = union(enum) { None, String: []const u8, Number: f32, Bool: bool, Function: Function };
 pub const Function = struct {
     arity: u32,
-    pub fn call(self: *Function, arguments: []const LiteralValue) LiteralValue {
-        _ = self; // autofix
-        for (arguments) |arg| {
-            // TODO: temp for testing arguments
-            switch (arg) {
-                .None => std.debug.print("None\n", .{}),
-                .Bool => |boolVal| std.debug.print("{}\n", .{boolVal}),
-                .Number => |number| std.debug.print("{d}\n", .{number}),
-                .String => |string| std.debug.print("\"{s}\"\n", .{string}),
-                // TODO:
-                .Function => unreachable,
-            }
-        }
-        return LiteralValue{ .Number = 5 };
-    }
+    parameters_start: u32,
+    parameters_end_exclusive: u32,
+    callable: FunCallable,
 };
+
+// not used anymore actually, only here temp
+pub fn defaultCall(self: *Function, gpa: Allocator, interpreter: *Interpreter, arguments: []const LiteralValue) Allocator.Error!LiteralValue {
+    const parent_environment = interpreter.environment;
+    var new_environment = Environment.init(gpa);
+    interpreter.environment = &new_environment;
+    interpreter.environment.enclosing = parent_environment;
+
+    const parameters = interpreter.parameters_list[self.parameters_start..self.parameters_end_exclusive];
+    for (arguments, 0..) |arg, i| {
+        const parameter = parameters[i];
+        try new_environment.define(gpa, parameter, arg);
+        // TODO: temp for testing arguments
+        //
+        // try
+        //
+        switch (arg) {
+            .None => std.debug.print("None\n", .{}),
+            .Bool => |boolVal| std.debug.print("{}\n", .{boolVal}),
+            .Number => |number| std.debug.print("{d}\n", .{number}),
+            .String => |string| std.debug.print("\"{s}\"\n", .{string}),
+            // TODO:
+            .Function => unreachable,
+        }
+    }
+
+    interpreter.environment = parent_environment;
+
+    return LiteralValue{ .Number = 5 };
+}
 
 pub const BinaryExpr = struct {
     left: ExprId,
