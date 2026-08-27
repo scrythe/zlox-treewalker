@@ -12,13 +12,21 @@ expressions: []const Expression,
 program_statements: []const Statement,
 scoped_statements: []const Statement,
 arguments_list: []const ExprId,
+parameters_list: []const []const u8,
 
-pub fn init(expressions: []const Expression, program_statements: []const Statement, scoped_statements: []const Statement, arguments_list: []const ExprId) AstPrinter {
+pub fn init(
+    expressions: []const Expression,
+    program_statements: []const Statement,
+    scoped_statements: []const Statement,
+    arguments_list: []const ExprId,
+    parameters_list: []const []const u8,
+) AstPrinter {
     return AstPrinter{
         .expressions = expressions,
         .program_statements = program_statements,
         .scoped_statements = scoped_statements,
         .arguments_list = arguments_list,
+        .parameters_list = parameters_list,
     };
 }
 
@@ -87,6 +95,18 @@ pub fn printStatement(self: *const AstPrinter, stdout_writer: *std.Io.Writer, st
             for (0..block_depth) |_| {
                 try stdout_writer.print(" ", .{});
             }
+        },
+        .FunDeclStmt => |funDeclStmt| {
+            try stdout_writer.print("fun {s}(", .{funDeclStmt.funName});
+            if ((funDeclStmt.parameters_end - funDeclStmt.parameters_start) > 0) {
+                try stdout_writer.print("{s}", .{self.parameters_list[funDeclStmt.parameters_start]});
+                for (self.parameters_list[funDeclStmt.parameters_start + 1 .. funDeclStmt.parameters_end]) |parameter_name| {
+                    try stdout_writer.print(", {s}", .{parameter_name});
+                }
+            }
+            try stdout_writer.print(") ", .{});
+            const funBlockStmt = self.scoped_statements[funDeclStmt.funBlockStmtId];
+            try self.printStatement(stdout_writer, funBlockStmt, block_depth);
         },
     }
 }

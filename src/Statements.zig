@@ -8,6 +8,7 @@ pub const ExpressionStmt = struct { exprId: ExprId };
 pub const PrintStmt = struct { exprId: ExprId };
 pub const WhileStmt = struct { conditionExprId: ExprId, bodyStmtId: StmtId };
 pub const VarDeclStmt = struct { varName: []const u8, valueExprId: ExprId };
+pub const FunDeclStmt = struct { funName: []const u8, parameters_start: u32, parameters_end: u32, funBlockStmtId: StmtId };
 pub const BlockStmt = struct { start: u32, endExclusive: u32 };
 
 pub const Statement = union(enum) {
@@ -16,5 +17,6 @@ pub const Statement = union(enum) {
     PrintStmt: PrintStmt,
     WhileStmt: WhileStmt,
     VarDeclStmt: VarDeclStmt,
+    FunDeclStmt: FunDeclStmt,
     BlockStmt: BlockStmt,
 };

@@ -28,12 +28,14 @@ expressions: std.ArrayList(Expression),
 program_statements: StatementsArray,
 scoped_statements: StatementsArray,
 arguments_list: std.ArrayList(ExprId),
+parameters_list: std.ArrayList([]const u8),
 
 pub fn init(gpa: Allocator, code: []const u8, tokens: []const Scanner.Token) ParseError!Parser {
     const expressions = try std.ArrayList(Expression).initCapacity(gpa, tokens.len);
     const program_statements = try StatementsArray.initCapacity(gpa, tokens.len);
     const scoped_statements = try StatementsArray.initCapacity(gpa, tokens.len);
     const arguments_list = try std.ArrayList(ExprId).initCapacity(gpa, tokens.len);
+    const parameters_list = try std.ArrayList([]const u8).initCapacity(gpa, tokens.len);
     return Parser{
         .code = code,
         .tokens = tokens,
@@ -42,6 +44,7 @@ pub fn init(gpa: Allocator, code: []const u8, tokens: []const Scanner.Token) Par
         .program_statements = program_statements,
         .scoped_statements = scoped_statements,
         .arguments_list = arguments_list,
+        .parameters_list = parameters_list,
     };
 }
 
@@ -50,6 +53,7 @@ pub fn deinit(self: *Parser, gpa: Allocator) void {
     self.program_statements.deinit(gpa);
     self.scoped_statements.deinit(gpa);
     self.arguments_list.deinit(gpa);
+    self.parameters_list.deinit(gpa);
 }
 
 /// program -> delcaration EOF
@@ -68,10 +72,13 @@ pub fn parse(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!void 
     if (hasError) return ParseError.CompileError;
 }
 
-/// declaration -> varDecl | statement
+/// declaration -> funDecl | varDecl | statement
 fn parseDeclaration(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!void {
     const tokenType = self.tokens[self.current].tokenType;
-    if (tokenType == .Var) {
+    if (tokenType == .Fun) {
+        self.current += 1;
+        _ = try self.parseFunction(gpa, reporter, global_statement);
+    } else if (tokenType == .Var) {
         self.current += 1;
         _ = try self.parseVarDecl(gpa, reporter, global_statement);
     } else {
@@ -79,6 +86,55 @@ fn parseDeclaration(self: *Parser, gpa: Allocator, reporter: Reporter, global_st
     }
 }
 
+/// funDecl -> "fun" function
+/// function -> Identifier "(" parameters? ")" block ;
+fn parseFunction(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!StmtId {
+    const function_name_token = self.tokens[self.current];
+    try self.checkTokenTypeAndConsumeOnNoError(reporter, .Identifier, "Expect funciton name.", function_name_token);
+
+    const left_paren_token = self.tokens[self.current];
+    try self.checkTokenTypeAndConsumeOnNoError(reporter, .LeftParen, "Expect '(' after function name.", left_paren_token);
+
+    const parameters_start: u32 = @intCast(self.parameters_list.items.len);
+
+    if (self.tokens[self.current].tokenType != .RightParen) {
+        while (true) {
+            const parameter_token = self.tokens[self.current];
+
+            const current_parameters_len = self.parameters_list.items.len - parameters_start;
+            // std.debug.print("{}\n", .{current_parameters_len});
+            if (current_parameters_len >= 255) {
+                try reporter.report(parameter_token.line, "Can't have more than 255 parameters");
+                return ParseError.CompileError;
+            }
+
+            try self.checkTokenTypeAndConsumeOnNoError(reporter, .Identifier, "Expect parameter name.", parameter_token);
+            const nextToken = self.tokens[self.current];
+            const parameterName = try self.getLexemeText(parameter_token, nextToken);
+            try self.parameters_list.append(gpa, parameterName);
+            if (self.tokens[self.current].tokenType != .Comma) break;
+            self.current += 1;
+        }
+    }
+    const right_paren_token = self.tokens[self.current];
+    try self.checkTokenTypeAndConsumeOnNoError(reporter, .RightParen, "Expect ')' after parameters.", right_paren_token);
+    const parameters_end: u32 = @intCast(self.parameters_list.items.len);
+
+    const left_brace_token = self.tokens[self.current];
+    try self.checkTokenTypeAndConsumeOnNoError(reporter, .LeftBrace, "Expect '{' before function body.", left_brace_token);
+    const funBlockStmtId = try self.parseBlockStmt(gpa, reporter, false);
+
+    const funName = try self.getLexemeText(function_name_token, left_paren_token);
+
+    const funDeclStmtValue = Statements.FunDeclStmt{ .funName = funName, .parameters_start = parameters_start, .parameters_end = parameters_end, .funBlockStmtId = funBlockStmtId };
+    const funDeclStmt = Statement{ .FunDeclStmt = funDeclStmtValue };
+
+    const funDeclStmtId = try self.addStatement(gpa, funDeclStmt, global_statement);
+
+    return funDeclStmtId;
+}
+
+/// parameters -> Identifier ( "," Identifier )* ;
 /// varDecl -> "var" Identifier ( "=" expression )? ";"
 fn parseVarDecl(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!StmtId {
     const token = self.tokens[self.current];

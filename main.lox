@@ -1,6 +1,11 @@
 //a(1, 2+3, 4);
-print clock();
 // var a = "hm";
 // print a;
 // for (var i = 0; i < 5; i = i + 1) print i;
 // for (; i < 5; i = i + 1) print i;
+
+
+fun testFun(a, hm) { print a; }
+
+testFun("hm", 2);
+

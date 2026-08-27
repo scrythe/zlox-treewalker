@@ -88,6 +88,12 @@ pub fn execute(self: *Interpreter, global_arena: Allocator, arena: Allocator, in
             const value = try self.evaluate(arena, reporter, varDeclStmt.valueExprId);
             try self.environment.define(global_arena, varDeclStmt.varName, value);
         },
+        .FunDeclStmt => |funDeclStmt| {
+            // TODO:
+            const func = LiteralValue{ .Function = .{ .arity = funDeclStmt.parameters_end - funDeclStmt.parameters_start } };
+            try self.environment.define(arena, funDeclStmt.funName, func);
+            // unreachable;
+        },
         .BlockStmt => |blockStmt| {
             // const stmtsInBlock = self.scoped_statements[blockStmt.start..blockStmt.endExclusive];
             var newEnvironment = Environment.init(arena);
