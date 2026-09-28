@@ -10,6 +10,7 @@ pub const WhileStmt = struct { conditionExprId: ExprId, bodyStmtId: StmtId };
 pub const VarDeclStmt = struct { varName: []const u8, valueExprId: ExprId };
 pub const FunDeclStmt = struct { funName: []const u8, parameters_start: u32, parameters_end_exclusive: u32, funBlockStmtId: StmtId };
 pub const BlockStmt = struct { start: u32, endExclusive: u32 };
+pub const ReturnStmt = struct { exprId: ExprId };
 
 pub const Statement = union(enum) {
     IfStmt: IfStmt,
@@ -19,4 +20,5 @@ pub const Statement = union(enum) {
     VarDeclStmt: VarDeclStmt,
     FunDeclStmt: FunDeclStmt,
     BlockStmt: BlockStmt,
+    ReturnStmt: ReturnStmt,
 };

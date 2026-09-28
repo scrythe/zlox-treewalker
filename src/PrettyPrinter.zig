@@ -7,6 +7,8 @@ const TokenType = Scanner.TokenType;
 const Statements = @import("Statements.zig");
 const Statement = Statements.Statement;
 
+const N_TAB_SPACES = "  ";
+
 const AstPrinter = @This();
 expressions: []const Expression,
 program_statements: []const Statement,
@@ -30,12 +32,6 @@ pub fn init(
     };
 }
 
-// pub fn print(self: *const AstPrinter, stdout_writer: *std.Io.Writer) std.Io.Writer.Error!void {
-//     try self.printExpression(stdout_writer, exprId);
-//     try stdout_writer.print("\n", .{});
-//     try stdout_writer.flush();
-// }
-
 pub fn printProgramStatements(self: *const AstPrinter, stdout_writer: *std.Io.Writer) std.Io.Writer.Error!void {
     for (self.program_statements) |program_statement| {
         try self.printStatement(stdout_writer, program_statement, 0);
@@ -44,34 +40,59 @@ pub fn printProgramStatements(self: *const AstPrinter, stdout_writer: *std.Io.Wr
     try stdout_writer.flush();
 }
 
+// for (self.scoped_statements[blockStmt.start + 1 .. blockStmt.endExclusive]) |inside_block_statement| {
 pub fn printStatement(self: *const AstPrinter, stdout_writer: *std.Io.Writer, statement: Statement, block_depth: u32) std.Io.Writer.Error!void {
     switch (statement) {
         .BlockStmt => |blockStmt| {
-            try stdout_writer.print("{{\n", .{});
-            for (0..block_depth + 1) |_| {
-                try stdout_writer.print(" ", .{});
-            }
-            try self.printStatement(stdout_writer, self.scoped_statements[blockStmt.start], block_depth + 1);
-            for (self.scoped_statements[blockStmt.start + 1 .. blockStmt.endExclusive]) |inside_block_statement| {
+            try stdout_writer.print("{{", .{});
+            var indexOfStmtInBlock = blockStmt.start;
+            while (indexOfStmtInBlock < blockStmt.endExclusive) {
+                const stmtInBlock = self.scoped_statements[indexOfStmtInBlock];
                 try stdout_writer.print("\n", .{});
                 for (0..block_depth + 1) |_| {
-                    try stdout_writer.print(" ", .{});
+                    try stdout_writer.print(N_TAB_SPACES, .{});
                 }
-                try self.printStatement(stdout_writer, inside_block_statement, block_depth + 1);
+                try self.printStatement(stdout_writer, stmtInBlock, block_depth + 1);
+                while (true) {
+                    const check_where_to_continue = self.scoped_statements[indexOfStmtInBlock];
+                    switch (check_where_to_continue) {
+                        .IfStmt => |ifStmt| {
+                            if (ifStmt.elseBranchId) |elseBranchId| {
+                                indexOfStmtInBlock = elseBranchId;
+                            } else {
+                                indexOfStmtInBlock = ifStmt.thenBranchId;
+                            }
+                        },
+                        .WhileStmt => |whileStmt| {
+                            indexOfStmtInBlock = whileStmt.bodyStmtId;
+                        },
+                        .FunDeclStmt => |funStmt| {
+                            indexOfStmtInBlock = funStmt.funBlockStmtId;
+                        },
+                        .BlockStmt => |anotherBlockStmt| {
+                            indexOfStmtInBlock = anotherBlockStmt.endExclusive - 1;
+                        },
+                        else => {
+                            break;
+                        },
+                    }
+                }
+                indexOfStmtInBlock += 1;
             }
             try stdout_writer.print("\n", .{});
             for (0..block_depth) |_| {
-                try stdout_writer.print(" ", .{});
+                try stdout_writer.print(N_TAB_SPACES, .{});
             }
             try stdout_writer.print("}}", .{});
         },
         .WhileStmt => |whileStmt| {
             try stdout_writer.print("while (", .{});
             try self.printExpression(stdout_writer, whileStmt.conditionExprId);
-            try stdout_writer.print(")\n", .{});
-            for (0..block_depth) |_| {
-                try stdout_writer.print(" ", .{});
-            }
+            try stdout_writer.print(") ", .{});
+            // try stdout_writer.print(")\n", .{});
+            // for (0..block_depth) |_| {
+            //     try stdout_writer.print(" ", .{});
+            // }
             const whileBodyStmt = self.scoped_statements[whileStmt.bodyStmtId];
             try self.printStatement(stdout_writer, whileBodyStmt, block_depth);
         },
@@ -80,11 +101,21 @@ pub fn printStatement(self: *const AstPrinter, stdout_writer: *std.Io.Writer, st
             try stdout_writer.print(";", .{});
         },
         .IfStmt => |ifStmt| {
-            _ = ifStmt; // autofix
+            try stdout_writer.print("if (", .{});
+            try self.printExpression(stdout_writer, ifStmt.conditionExprId);
+            try stdout_writer.print(") ", .{});
+            const ifThenStmt = self.scoped_statements[ifStmt.thenBranchId];
+            try self.printStatement(stdout_writer, ifThenStmt, block_depth);
+            if (ifStmt.elseBranchId) |elseBranchId| {
+                try stdout_writer.print(" else ", .{});
+                const ifElseStmt = self.scoped_statements[elseBranchId];
+                try self.printStatement(stdout_writer, ifElseStmt, block_depth);
+            }
         },
         .PrintStmt => |printStmt| {
             try stdout_writer.print("print ", .{});
             try self.printExpression(stdout_writer, printStmt.exprId);
+            try stdout_writer.print(";", .{});
         },
         .VarDeclStmt => |varDeclStmt| {
             try stdout_writer.print("var {s} = ", .{varDeclStmt.varName});
@@ -102,6 +133,11 @@ pub fn printStatement(self: *const AstPrinter, stdout_writer: *std.Io.Writer, st
             try stdout_writer.print(") ", .{});
             const funBlockStmt = self.scoped_statements[funDeclStmt.funBlockStmtId];
             try self.printStatement(stdout_writer, funBlockStmt, block_depth);
+        },
+        .ReturnStmt => |returnStmt| {
+            try stdout_writer.print("return ", .{});
+            try self.printExpression(stdout_writer, returnStmt.exprId);
+            try stdout_writer.print(";", .{});
         },
     }
 }
@@ -129,7 +165,9 @@ pub fn printExpression(self: *const AstPrinter, stdout_writer: *std.Io.Writer, e
             }
         },
         .Logical => |logical| {
-            _ = logical; // autofix
+            try self.printExpression(stdout_writer, logical.left);
+            try stdout_writer.print(" {s} ", .{convertTokenTypeToString(logical.operator)});
+            try self.printExpression(stdout_writer, logical.right);
         },
         .UnaryExpr => |unaryExpr| {
             try stdout_writer.print("{s}", .{convertTokenTypeToString(unaryExpr.operator)});
@@ -173,6 +211,7 @@ fn convertTokenTypeToString(tokenType: TokenType) []const u8 {
         TokenType.GreaterEqual => ">=",
         TokenType.Less => "<",
         TokenType.LessEqual => "<=",
+        TokenType.And => "and",
         else => unreachable,
     };
 }

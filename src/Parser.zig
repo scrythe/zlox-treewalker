@@ -120,6 +120,15 @@ fn parseFunction(self: *Parser, gpa: Allocator, reporter: Reporter, global_state
     try self.checkTokenTypeAndConsumeOnNoError(reporter, .RightParen, "Expect ')' after parameters.", right_paren_token);
     const parameters_end: u32 = @intCast(self.parameters_list.items.len);
 
+    var funDeclStmtId: StmtId = undefined;
+    const funDeclStmtRef = if (global_statement) blk: {
+        funDeclStmtId = @intCast(self.program_statements.items.len);
+        break :blk try self.program_statements.addOne(gpa);
+    } else blk: {
+        funDeclStmtId = @intCast(self.scoped_statements.items.len);
+        break :blk try self.scoped_statements.addOne(gpa);
+    };
+
     const left_brace_token = self.tokens[self.current];
     try self.checkTokenTypeAndConsumeOnNoError(reporter, .LeftBrace, "Expect '{' before function body.", left_brace_token);
     const funBlockStmtId = try self.parseBlockStmt(gpa, reporter, false);
@@ -129,7 +138,7 @@ fn parseFunction(self: *Parser, gpa: Allocator, reporter: Reporter, global_state
     const funDeclStmtValue = Statements.FunDeclStmt{ .funName = funName, .parameters_start = parameters_start, .parameters_end_exclusive = parameters_end, .funBlockStmtId = funBlockStmtId };
     const funDeclStmt = Statement{ .FunDeclStmt = funDeclStmtValue };
 
-    const funDeclStmtId = try self.addStatement(gpa, funDeclStmt, global_statement);
+    funDeclStmtRef.* = funDeclStmt;
 
     return funDeclStmtId;
 }
@@ -162,7 +171,7 @@ fn parseVarDecl(self: *Parser, gpa: Allocator, reporter: Reporter, global_statem
     return varDecltStmtId;
 }
 
-/// statement -> exprStmt | ifStmt | printStmt | whileStmt | forStmt | block
+/// statement -> exprStmt | ifStmt | printStmt | whileStmt | forStmt | block | returnStmt
 fn parseStatement(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!StmtId {
     // could maybe combine some logic from parseExprStmt and parsePrintStmt but will
     // do later if still worth it
@@ -188,6 +197,10 @@ fn parseStatement(self: *Parser, gpa: Allocator, reporter: Reporter, global_stat
             self.current += 1;
             return try self.parseBlockStmt(gpa, reporter, global_statement);
         },
+        .Return => {
+            self.current += 1;
+            return try self.parseReturnStmt(gpa, reporter, global_statement);
+        },
         else => return try self.parseExprStmt(gpa, reporter, global_statement),
     }
 }
@@ -199,6 +212,15 @@ fn parseIfStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_stateme
     const rightParenToken = self.tokens[self.current];
     try self.checkTokenTypeAndConsumeOnNoError(reporter, TokenType.RightParen, "Expect ')' after if condition.", rightParenToken);
 
+    var ifStmtId: StmtId = undefined;
+    const ifStmtRef = if (global_statement) blk: {
+        ifStmtId = @intCast(self.program_statements.items.len);
+        break :blk try self.program_statements.addOne(gpa);
+    } else blk: {
+        ifStmtId = @intCast(self.scoped_statements.items.len);
+        break :blk try self.scoped_statements.addOne(gpa);
+    };
+
     const thenBranch = try self.parseStatement(gpa, reporter, false);
 
     var elseBranch: ?StmtId = null;
@@ -208,7 +230,8 @@ fn parseIfStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_stateme
     }
     const ifStmtValue = Statements.IfStmt{ .conditionExprId = conditionId, .thenBranchId = thenBranch, .elseBranchId = elseBranch };
     const ifStmt = Statement{ .IfStmt = ifStmtValue };
-    return self.addStatement(gpa, ifStmt, global_statement);
+    ifStmtRef.* = ifStmt;
+    return ifStmtId;
 }
 
 fn parseExprStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!StmtId {
@@ -242,12 +265,22 @@ fn parseWhileStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_stat
     const rightParenToken = self.tokens[self.current];
     try self.checkTokenTypeAndConsumeOnNoError(reporter, TokenType.RightParen, "Expect ')' after if condition.", rightParenToken);
 
+    var whileStmtId: StmtId = undefined;
+    const whileStmtRef = if (global_statement) blk: {
+        whileStmtId = @intCast(self.program_statements.items.len);
+        break :blk try self.program_statements.addOne(gpa);
+    } else blk: {
+        whileStmtId = @intCast(self.scoped_statements.items.len);
+        break :blk try self.scoped_statements.addOne(gpa);
+    };
+
     const bodyStmtId = try self.parseStatement(gpa, reporter, false);
 
     const whileStmtValue = Statements.WhileStmt{ .conditionExprId = conditionExprId, .bodyStmtId = bodyStmtId };
     const whileStmt = Statement{ .WhileStmt = whileStmtValue };
+    whileStmtRef.* = whileStmt;
 
-    return self.addStatement(gpa, whileStmt, global_statement);
+    return whileStmtId;
 }
 
 /// for -> "for" "("  ( varDecl | exprStmt | ";" ) expression? ";" expression? ")" statement ;
@@ -362,6 +395,17 @@ fn parseBlockStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_stat
 
     blockStmtRef.* = blockStmt;
     return blockStmtId;
+}
+
+/// returnStmt -> "return" expression ";"
+fn parseReturnStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!StmtId {
+    const exprId = try self.parseExpression(gpa, reporter);
+    const semicolonToken = self.tokens[self.current];
+    try self.checkTokenTypeAndConsumeOnNoError(reporter, TokenType.Semicolon, "Expect ';' after return value.", semicolonToken);
+
+    const returnStmtValue = Statements.ReturnStmt{ .exprId = exprId };
+    const returnStmt = Statement{ .ReturnStmt = returnStmtValue };
+    return self.addStatement(gpa, returnStmt, global_statement);
 }
 
 /// expression -> assignment
