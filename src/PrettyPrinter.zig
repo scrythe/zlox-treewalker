@@ -89,10 +89,6 @@ pub fn printStatement(self: *const AstPrinter, stdout_writer: *std.Io.Writer, st
             try stdout_writer.print("while (", .{});
             try self.printExpression(stdout_writer, whileStmt.conditionExprId);
             try stdout_writer.print(") ", .{});
-            // try stdout_writer.print(")\n", .{});
-            // for (0..block_depth) |_| {
-            //     try stdout_writer.print(" ", .{});
-            // }
             const whileBodyStmt = self.scoped_statements[whileStmt.bodyStmtId];
             try self.printStatement(stdout_writer, whileBodyStmt, block_depth);
         },

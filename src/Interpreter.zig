@@ -138,10 +138,6 @@ pub fn execute(self: *Interpreter, io: Io, global_arena: Allocator, arena: Alloc
                         },
                     }
                 }
-
-                // if (stmtInBlock == .BlockStmt) {
-                //     indexOfStmtInBlock = stmtInBlock.BlockStmt.endExclusive - 1;
-                // }
             }
             self.environment = oldEnvironment;
         },
@@ -256,9 +252,12 @@ pub fn evaluate(self: *Interpreter, io: Io, arena: Allocator, interpreterPrinter
                     const calleeObj = &callee.Function;
                     switch (callee.Function.callable) {
                         .UserFunctionBody => |userFunctionBody| {
+                            // NOTE: not sure but craftinginterpreters may be using globals? but it has issues with nested/recursive calls? idk, could look further into it ig
                             const parent_environment = self.environment;
-                            var new_environment = Environment.init(arena);
-                            self.environment = &new_environment;
+
+                            var new_environment = try arena.create(Environment);
+                            new_environment.* = Environment.init(arena);
+                            self.environment = new_environment;
                             self.environment.enclosing = parent_environment;
 
                             const parameters = self.parameters_list[calleeObj.parameters_start..calleeObj.parameters_end_exclusive];
@@ -272,10 +271,36 @@ pub fn evaluate(self: *Interpreter, io: Io, arena: Allocator, interpreterPrinter
                             while (indexOfStmtInBlock < functionBody.endExclusive) : (indexOfStmtInBlock += 1) {
                                 const stmtInBlock = self.scoped_statements[indexOfStmtInBlock];
                                 // TODO: global_arena instead of arena?
-                                returnValue = try self.execute(io, arena, arena, interpreterPrinter, reporter, stmtInBlock) orelse LiteralValue.None;
+                                const optReturnValue = try self.execute(io, arena, arena, interpreterPrinter, reporter, stmtInBlock);
+                                if (optReturnValue) |somereturnValue| {
+                                    returnValue = somereturnValue;
+                                    break;
+                                }
 
-                                if (stmtInBlock == .BlockStmt) {
-                                    indexOfStmtInBlock = stmtInBlock.BlockStmt.endExclusive - 1;
+                                // could maybe call execute on block but potentially issue regarding return statement
+                                while (true) {
+                                    const check_where_to_continue = self.scoped_statements[indexOfStmtInBlock];
+                                    switch (check_where_to_continue) {
+                                        .IfStmt => |ifStmt| {
+                                            if (ifStmt.elseBranchId) |elseBranchId| {
+                                                indexOfStmtInBlock = elseBranchId;
+                                            } else {
+                                                indexOfStmtInBlock = ifStmt.thenBranchId;
+                                            }
+                                        },
+                                        .WhileStmt => |whileStmt| {
+                                            indexOfStmtInBlock = whileStmt.bodyStmtId;
+                                        },
+                                        .FunDeclStmt => |funStmt| {
+                                            indexOfStmtInBlock = funStmt.funBlockStmtId;
+                                        },
+                                        .BlockStmt => |anotherBlockStmt| {
+                                            indexOfStmtInBlock = anotherBlockStmt.endExclusive - 1;
+                                        },
+                                        else => {
+                                            break;
+                                        },
+                                    }
                                 }
                             }
 
