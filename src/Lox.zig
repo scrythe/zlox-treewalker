@@ -5,6 +5,7 @@ const Scanner = @import("Scanner.zig");
 const Parser = @import("Parser.zig");
 const Environment = @import("Environment.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
+const Resolver = @import("Resolver.zig");
 const Interpreter = @import("Interpreter.zig");
 const ArenaAllocator = std.heap.ArenaAllocator;
 const Expressions = @import("Expressions.zig");
@@ -105,6 +106,10 @@ pub fn run(self: *Lox, io: Io, gpa: Allocator, stdout_writer: *std.Io.Writer, re
     var arena_instance = ArenaAllocator.init(gpa);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
+
+    var resolver = Resolver.init(parser.expressions.items, parser.program_statements.items, parser.scoped_statements.items, parser.arguments_list.items, parser.parameters_list.items);
+    try resolver.resolve_program_statements(arena, reporter);
+
     var interpreter = try Interpreter.init(&self.global_environment, parser.expressions.items, parser.program_statements.items, parser.scoped_statements.items, parser.arguments_list.items, parser.parameters_list.items);
     // defer interpreter.deinit();
     try interpreter.interpret(io, self.global_arena, arena, stdout_writer, reporter);

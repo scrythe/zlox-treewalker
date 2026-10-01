@@ -1,11 +1,11 @@
-fun bla() {
-  var i = 0;
-  fun count() {
-    return i = i + 1;
+{
+  var a = 5;
+  { 
+     var b = a;
+     var a = 5;
+     print b;
+     print a;
   }
-  return count;
+  print a;
 }
 
-var b= bla();
-print b();
-print b();
