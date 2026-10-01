@@ -17,6 +17,7 @@ scoped_statements: []const Statement,
 arguments_list: []const Expressions.ExprId,
 parameters_list: []const []const u8,
 environment: *Environment,
+global_environment: *Environment,
 const Interpreter = @This();
 
 pub const Error = Lox.Error || std.Io.Writer.Error || Allocator.Error;
@@ -36,6 +37,7 @@ pub fn init(
         .arguments_list = arguments_list,
         .parameters_list = parameters_list,
         .environment = global_environment,
+        .global_environment = global_environment,
     };
 }
 
@@ -69,8 +71,7 @@ pub fn execute(self: *Interpreter, io: Io, global_arena: Allocator, arena: Alloc
                 .Bool => |boolVal| try interpreterPrinter.print("{}\n", .{boolVal}),
                 .Number => |number| try interpreterPrinter.print("{d}\n", .{number}),
                 .String => |string| try interpreterPrinter.print("\"{s}\"\n", .{string}),
-                // TODO:
-                .Function => unreachable,
+                .Function => |function| try interpreterPrinter.print("{s}\n", .{function.string}),
             }
             try interpreterPrinter.flush();
         },
@@ -97,7 +98,11 @@ pub fn execute(self: *Interpreter, io: Io, global_arena: Allocator, arena: Alloc
                 .arity = funDeclStmt.parameters_end_exclusive - funDeclStmt.parameters_start,
                 .parameters_start = funDeclStmt.parameters_start,
                 .parameters_end_exclusive = funDeclStmt.parameters_end_exclusive,
-                .callable = .{ .UserFunctionBody = funDeclStmt.funBlockStmtId },
+                .callable = .{ .UserFunction = .{
+                    .body = funDeclStmt.funBlockStmtId,
+                    .environment = self.environment,
+                } },
+                .string = try std.fmt.allocPrint(arena, "<fn {s}>", .{funDeclStmt.funName}),
             } };
             try self.environment.define(arena, funDeclStmt.funName, func);
             // unreachable;
@@ -233,7 +238,7 @@ pub fn evaluate(self: *Interpreter, io: Io, arena: Allocator, interpreterPrinter
             return value;
         },
         .CallExpr => |callExpr| {
-            var returnValue: LiteralValue = undefined;
+            var returnValue: LiteralValue = LiteralValue.None;
             var callee = try self.evaluate(io, arena, interpreterPrinter, reporter, callExpr.calleeExprId);
             if (callee != .Function) {
                 try reporter.reportRuntimeError("Can only call functions and classes", callExpr.line);
@@ -251,22 +256,30 @@ pub fn evaluate(self: *Interpreter, io: Io, arena: Allocator, interpreterPrinter
                     }
                     const calleeObj = &callee.Function;
                     switch (callee.Function.callable) {
-                        .UserFunctionBody => |userFunctionBody| {
-                            // NOTE: not sure but craftinginterpreters may be using globals? but it has issues with nested/recursive calls? idk, could look further into it ig
-                            const parent_environment = self.environment;
+                        .UserFunction => |userFunction| {
+                            const parent_environment = userFunction.environment;
+                            const prev_environment = self.environment;
+                            // var iterator = userFunction.environment.values.iterator();
+                            //
+                            // var temp_names: [10][]const u8 = undefined;
+                            // var temp_values: [10]LiteralValue = undefined;
+                            // var entry_i: u32 = 0;
+                            // while (iterator.next()) |entry| : (entry_i += 1) {
+                            //     temp_names[entry_i] = entry.key_ptr.*;
+                            //     temp_values[entry_i] = entry.value_ptr.*;
+                            // }
 
-                            var new_environment = try arena.create(Environment);
-                            new_environment.* = Environment.init(arena);
-                            self.environment = new_environment;
+                            self.environment = try arena.create(Environment);
+                            self.environment.* = Environment.init(arena);
                             self.environment.enclosing = parent_environment;
 
                             const parameters = self.parameters_list[calleeObj.parameters_start..calleeObj.parameters_end_exclusive];
 
                             for (eval_args, 0..) |arg, i| {
                                 const parameter = parameters[i];
-                                try new_environment.define(arena, parameter, arg);
+                                try self.environment.define(arena, parameter, arg);
                             }
-                            const functionBody = self.scoped_statements[userFunctionBody].BlockStmt;
+                            const functionBody = self.scoped_statements[userFunction.body].BlockStmt;
                             var indexOfStmtInBlock = functionBody.start;
                             while (indexOfStmtInBlock < functionBody.endExclusive) : (indexOfStmtInBlock += 1) {
                                 const stmtInBlock = self.scoped_statements[indexOfStmtInBlock];
@@ -304,7 +317,7 @@ pub fn evaluate(self: *Interpreter, io: Io, arena: Allocator, interpreterPrinter
                                 }
                             }
 
-                            self.environment = parent_environment;
+                            self.environment = prev_environment;
 
                             return returnValue;
                         },

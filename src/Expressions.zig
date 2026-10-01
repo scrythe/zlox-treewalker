@@ -5,19 +5,26 @@ const Allocator = std.mem.Allocator;
 const Reporter = @import("Reporter.zig");
 const Environment = @import("Environment.zig");
 const Io = std.Io;
-
 pub const FunCallable = union(enum) {
     NativeFunction: *const fn (self: *Function, io: Io, arguments: []const LiteralValue) LiteralValue,
-    UserFunctionBody: u32,
+    UserFunction: struct { body: u32, environment: *Environment },
 };
 
 pub const ExprId = u32;
-pub const LiteralValue = union(enum) { None, String: []const u8, Number: f64, Bool: bool, Function: Function };
+pub const LiteralValue = union(enum) {
+    None,
+    String: []const u8,
+    Number: f64,
+    Bool: bool,
+    Function: Function,
+};
+
 pub const Function = struct {
     arity: u32,
     parameters_start: u32,
     parameters_end_exclusive: u32,
     callable: FunCallable,
+    string: []const u8,
 };
 
 pub const BinaryExpr = struct {

@@ -23,6 +23,7 @@ pub fn init(arena: Allocator) !Lox {
         .parameters_start = 0,
         .parameters_end_exclusive = 0,
         .callable = .{ .NativeFunction = clockFn },
+        .string = "<native fn>",
     } });
     return Lox{
         .global_environment = global_environment,
