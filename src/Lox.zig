@@ -100,17 +100,38 @@ pub fn run(self: *Lox, io: Io, gpa: Allocator, stdout_writer: *std.Io.Writer, re
         return;
     }
 
-    const prettyPrinter = PrettyPrinter.init(parser.expressions.items, parser.program_statements.items, parser.scoped_statements.items, parser.arguments_list.items, parser.parameters_list.items);
+    const prettyPrinter = PrettyPrinter.init(
+        parser.expressions.items,
+        parser.program_statements.items,
+        parser.scoped_statements.items,
+        parser.arguments_list.items,
+        parser.parameters_list.items,
+    );
     try prettyPrinter.printProgramStatements(stdout_writer);
 
     var arena_instance = ArenaAllocator.init(gpa);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    var resolver = Resolver.init(parser.expressions.items, parser.program_statements.items, parser.scoped_statements.items, parser.arguments_list.items, parser.parameters_list.items);
-    try resolver.resolve_program_statements(arena, reporter);
+    var resolver = Resolver.init(
+        arena,
+        parser.expressions.items,
+        parser.program_statements.items,
+        parser.scoped_statements.items,
+        parser.arguments_list.items,
+        parser.parameters_list.items,
+    );
+    const var_expr_distance_map = try resolver.resolve_program_statements(arena, reporter);
 
-    var interpreter = try Interpreter.init(&self.global_environment, parser.expressions.items, parser.program_statements.items, parser.scoped_statements.items, parser.arguments_list.items, parser.parameters_list.items);
+    var interpreter = try Interpreter.init(
+        &self.global_environment,
+        parser.expressions.items,
+        parser.program_statements.items,
+        parser.scoped_statements.items,
+        parser.arguments_list.items,
+        parser.parameters_list.items,
+        var_expr_distance_map,
+    );
     // defer interpreter.deinit();
     try interpreter.interpret(io, self.global_arena, arena, stdout_writer, reporter);
 }

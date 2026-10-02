@@ -3,7 +3,6 @@ const LiteralValue = @import("Expressions.zig").LiteralValue;
 const Allocator = std.mem.Allocator;
 const Reporter = @import("Reporter.zig");
 const Interpreter = @import("Interpreter.zig");
-// const Lox = @import("Lox.zig");
 
 const ValuesType = std.StringHashMap(LiteralValue);
 
@@ -38,10 +37,6 @@ pub fn define(self: *Environment, arena: Allocator, name: []const u8, value: Lit
 }
 
 pub fn get(self: *Environment, reporter: Reporter, name: []const u8, line: u32) Interpreter.Error!LiteralValue {
-    // var a = self.values.iterator();
-    // while (a.next()) |v| {
-    //     std.debug.print("{any}", .{v});
-    // }
     return self.values.get(name) orelse {
         if (self.enclosing) |enclosing| {
             return enclosing.get(reporter, name, line);
@@ -50,6 +45,15 @@ pub fn get(self: *Environment, reporter: Reporter, name: []const u8, line: u32) 
             return Interpreter.Error.RuntimeError;
         }
     };
+}
+
+pub fn get_at(self: *Environment, name: []const u8, distance: u32) Interpreter.Error!LiteralValue {
+    var hops: u32 = 0;
+    var environment = self;
+    while (hops < distance) : (hops += 1) {
+        environment = environment.enclosing orelse unreachable;
+    }
+    return environment.values.get(name) orelse unreachable;
 }
 
 pub fn assign(self: *Environment, reporter: Reporter, arena: Allocator, name: []const u8, value: LiteralValue, line: u32) Interpreter.Error!void {
@@ -69,5 +73,21 @@ pub fn assign(self: *Environment, reporter: Reporter, arena: Allocator, name: []
         } else {
             self.values.putAssumeCapacity(name, value);
         }
+    }
+}
+
+pub fn assign_at(self: *Environment, arena: Allocator, name: []const u8, value: LiteralValue, distance: u32) Interpreter.Error!void {
+    var hops: u32 = 0;
+    var environment = self;
+    while (hops < distance) : (hops += 1) {
+        environment = environment.enclosing orelse unreachable;
+    }
+    if (value == .String) {
+        const string_value = try arena.alloc(u8, value.String.len);
+        @memcpy(string_value, value.String);
+        const literal_value = LiteralValue{ .String = string_value };
+        self.values.putAssumeCapacity(name, literal_value);
+    } else {
+        self.values.putAssumeCapacity(name, value);
     }
 }

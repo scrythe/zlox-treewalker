@@ -9,6 +9,9 @@ const Reporter = @import("Reporter.zig");
 const Lox = @import("Lox.zig");
 
 const ScopeType = std.StringHashMap(bool);
+// NOTE: probably not good to use ExprId because of repl it might reset to 0 and can to lead to some bad cases? Hash
+// expressions seems bad too tho
+pub const VarExprDistanceMap = std.AutoHashMap(Expressions.ExprId, u32);
 
 const Resolver = @This();
 expressions: []const Expression,
@@ -17,8 +20,10 @@ scoped_statements: []const Statement,
 arguments_list: []const ExprId,
 parameters_list: []const []const u8,
 scopes: std.ArrayList(ScopeType),
+var_expr_distance_map: VarExprDistanceMap,
 
 pub fn init(
+    arena: Allocator,
     expressions: []const Expression,
     program_statements: []const Statement,
     scoped_statements: []const Statement,
@@ -32,13 +37,15 @@ pub fn init(
         .arguments_list = arguments_list,
         .parameters_list = parameters_list,
         .scopes = .empty,
+        .var_expr_distance_map = .init(arena),
     };
 }
 
-pub fn resolve_program_statements(self: *Resolver, arena: Allocator, reporter: Reporter) !void {
+pub fn resolve_program_statements(self: *Resolver, arena: Allocator, reporter: Reporter) !VarExprDistanceMap {
     for (self.program_statements) |program_statement| {
         try self.resolve_statement(arena, reporter, program_statement);
     }
+    return self.var_expr_distance_map;
 }
 
 pub fn resolve_statement(self: *Resolver, arena: Allocator, reporter: Reporter, statement: Statement) !void {
@@ -101,7 +108,39 @@ pub fn resolve_statement(self: *Resolver, arena: Allocator, reporter: Reporter, 
                 try inner_function_scope.put(parameter_name, true);
             }
             const fun_body_stmt = self.scoped_statements[funDeclStmt.funBlockStmtId];
-            try self.resolve_statement(arena, reporter, fun_body_stmt);
+
+            const bodyStmt = fun_body_stmt.BlockStmt;
+            var indexOfStmtInBlock = bodyStmt.start;
+            while (indexOfStmtInBlock < bodyStmt.endExclusive) {
+                const stmtInBlock = self.scoped_statements[indexOfStmtInBlock];
+                try self.resolve_statement(arena, reporter, stmtInBlock);
+
+                while (true) {
+                    const check_where_to_continue = self.scoped_statements[indexOfStmtInBlock];
+                    switch (check_where_to_continue) {
+                        .IfStmt => |ifStmt| {
+                            if (ifStmt.elseBranchId) |elseBranchId| {
+                                indexOfStmtInBlock = elseBranchId;
+                            } else {
+                                indexOfStmtInBlock = ifStmt.thenBranchId;
+                            }
+                        },
+                        .WhileStmt => |whileStmt| {
+                            indexOfStmtInBlock = whileStmt.bodyStmtId;
+                        },
+                        .FunDeclStmt => |funStmt| {
+                            indexOfStmtInBlock = funStmt.funBlockStmtId;
+                        },
+                        .BlockStmt => |anotherBlockStmt| {
+                            indexOfStmtInBlock = anotherBlockStmt.endExclusive - 1;
+                        },
+                        else => {
+                            break;
+                        },
+                    }
+                }
+                indexOfStmtInBlock += 1;
+            }
 
             self.scopes.items.len -= 1;
 
@@ -130,7 +169,7 @@ pub fn resolve_statement(self: *Resolver, arena: Allocator, reporter: Reporter, 
     }
 }
 
-fn resolve_expression(self: Resolver, reporter: Reporter, exprId: ExprId) !void {
+fn resolve_expression(self: *Resolver, reporter: Reporter, exprId: ExprId) !void {
     switch (self.expressions[exprId]) {
         .VariableExpr => |varExpr| {
             if (self.scopes.items.len < 1) return;
@@ -140,11 +179,11 @@ fn resolve_expression(self: Resolver, reporter: Reporter, exprId: ExprId) !void 
                 try reporter.reportWithContext(varExpr.line, varExpr.varName, "Can't read local variable in its own initializer.");
                 return Lox.Error.CompileError;
             }
-            self.resolve_local_var(varExpr.varName);
+            try self.resolve_local_var(exprId, varExpr.varName);
         },
         .AssignmentExpr => |assignExpr| {
             try self.resolve_expression(reporter, assignExpr.valueExprId);
-            self.resolve_local_var(assignExpr.varName);
+            try self.resolve_local_var(exprId, assignExpr.varName);
         },
         .BinaryExpr => |binaryExpr| {
             try self.resolve_expression(reporter, binaryExpr.left);
@@ -171,13 +210,14 @@ fn resolve_expression(self: Resolver, reporter: Reporter, exprId: ExprId) !void 
     }
 }
 
-fn resolve_local_var(self: Resolver, varName: []const u8) void {
-    var i: isize = @bitCast(self.scopes.items.len - 1);
+fn resolve_local_var(self: *Resolver, exprId: ExprId, varName: []const u8) !void {
+    const last_scope_i: isize = @bitCast(self.scopes.items.len - 1);
+    var i = last_scope_i;
     while (i >= 0) : (i -= 1) {
         const scope = self.scopes.items[@bitCast(i)];
         if (scope.contains(varName)) {
-            // TODO: interpreter resolve
-            std.debug.print("{s} at depth {d}\n", .{ varName, i }); // NOTE: only temp
+            const distance: u32 = @intCast(last_scope_i - i);
+            try self.var_expr_distance_map.put(exprId, distance);
             return;
         }
     }

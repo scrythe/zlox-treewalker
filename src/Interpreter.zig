@@ -8,6 +8,7 @@ const Lox = @import("Lox.zig");
 const Environment = @import("Environment.zig");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
+const Resolver = @import("Resolver.zig");
 
 const LiteralValue = Expressions.LiteralValue;
 
@@ -18,6 +19,8 @@ arguments_list: []const Expressions.ExprId,
 parameters_list: []const []const u8,
 environment: *Environment,
 global_environment: *Environment,
+var_expr_distance_map: Resolver.VarExprDistanceMap,
+
 const Interpreter = @This();
 
 pub const Error = Lox.Error || std.Io.Writer.Error || Allocator.Error;
@@ -29,6 +32,7 @@ pub fn init(
     scoped_statements: []const Statement,
     arguments_list: []const Expressions.ExprId,
     parameters_list: []const []const u8,
+    var_expr_depth_map: Resolver.VarExprDistanceMap,
 ) !Interpreter {
     return Interpreter{
         .expressions = expresssions,
@@ -38,6 +42,7 @@ pub fn init(
         .parameters_list = parameters_list,
         .environment = global_environment,
         .global_environment = global_environment,
+        .var_expr_distance_map = var_expr_depth_map,
     };
 }
 
@@ -231,10 +236,25 @@ pub fn evaluate(self: *Interpreter, io: Io, arena: Allocator, interpreterPrinter
                 else => unreachable,
             }
         },
-        .VariableExpr => |variableExpr| try self.environment.get(reporter, variableExpr.varName, variableExpr.line),
+        .VariableExpr => |variableExpr| {
+            const optDistance = self.var_expr_distance_map.get(exprId);
+            if (optDistance) |distance| {
+                return try self.environment.get_at(variableExpr.varName, distance);
+            } else {
+                return try self.global_environment.get(reporter, variableExpr.varName, variableExpr.line);
+            }
+        },
+
         .AssignmentExpr => |assignmentExpr| {
             const value = try self.evaluate(io, arena, interpreterPrinter, reporter, assignmentExpr.valueExprId);
-            try self.environment.assign(reporter, arena, assignmentExpr.varName, value, assignmentExpr.line);
+
+            const optDistance = self.var_expr_distance_map.get(exprId);
+            if (optDistance) |distance| {
+                try self.environment.assign_at(arena, assignmentExpr.varName, value, distance);
+            } else {
+                try self.global_environment.assign(reporter, arena, assignmentExpr.varName, value, assignmentExpr.line);
+            }
+
             return value;
         },
         .CallExpr => |callExpr| {
