@@ -1,9 +1,3 @@
-var a = "global";
-{
-  fun showA() {
-    print a;
-  }
-  var a = "block";
-  showA();
-  showA();
+fun bad() {
+  var a = "first";
 }

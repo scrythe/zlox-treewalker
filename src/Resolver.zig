@@ -13,6 +13,11 @@ const ScopeType = std.StringHashMap(bool);
 // expressions seems bad too tho
 pub const VarExprDistanceMap = std.AutoHashMap(Expressions.ExprId, u32);
 
+const FunctionType = enum {
+    None,
+    Function,
+};
+
 const Resolver = @This();
 expressions: []const Expression,
 program_statements: []const Statement,
@@ -21,6 +26,7 @@ arguments_list: []const ExprId,
 parameters_list: []const []const u8,
 scopes: std.ArrayList(ScopeType),
 var_expr_distance_map: VarExprDistanceMap,
+current_function: FunctionType,
 
 pub fn init(
     arena: Allocator,
@@ -38,6 +44,7 @@ pub fn init(
         .parameters_list = parameters_list,
         .scopes = .empty,
         .var_expr_distance_map = .init(arena),
+        .current_function = .None,
     };
 }
 
@@ -89,16 +96,15 @@ pub fn resolve_statement(self: *Resolver, arena: Allocator, reporter: Reporter, 
             self.scopes.items.len -= 1;
         },
         .VarDeclStmt => |varDeclStmt| {
-            if (self.scopes.items.len < 1) return;
-            const scope = &self.scopes.items[self.scopes.items.len - 1];
-            try scope.put(varDeclStmt.varName, false);
+            try self.declare_variable(reporter, varDeclStmt.varName, varDeclStmt.line);
             try self.resolve_expression(reporter, varDeclStmt.valueExprId);
-            try scope.put(varDeclStmt.varName, true);
+            try self.define_variable(varDeclStmt.varName);
         },
         .FunDeclStmt => |funDeclStmt| {
-            if (self.scopes.items.len < 1) return;
-            const outer_function_scope = &self.scopes.items[self.scopes.items.len - 1];
-            try outer_function_scope.put(funDeclStmt.funName, false);
+            try self.declare_variable(reporter, funDeclStmt.funName, funDeclStmt.line);
+
+            const enclosing_function = self.current_function;
+            self.current_function = .Function;
 
             const inner_function_scope = try self.scopes.addOne(arena);
             inner_function_scope.* = ScopeType.init(arena);
@@ -144,7 +150,9 @@ pub fn resolve_statement(self: *Resolver, arena: Allocator, reporter: Reporter, 
 
             self.scopes.items.len -= 1;
 
-            try outer_function_scope.put(funDeclStmt.funName, true);
+            self.current_function = enclosing_function;
+
+            try self.define_variable(funDeclStmt.funName);
         },
         .ExpressionStmt => |exprStmt| {
             try self.resolve_expression(reporter, exprStmt.exprId);
@@ -160,6 +168,10 @@ pub fn resolve_statement(self: *Resolver, arena: Allocator, reporter: Reporter, 
             try self.resolve_expression(reporter, printStmt.exprId);
         },
         .ReturnStmt => |returnStmt| {
+            if (self.current_function == .None) {
+                try reporter.report(returnStmt.line, "Can't return from top-level code.");
+                return Lox.Error.CompileError;
+            }
             try self.resolve_expression(reporter, returnStmt.exprId);
         },
         .WhileStmt => |whileStmt| {
@@ -167,6 +179,27 @@ pub fn resolve_statement(self: *Resolver, arena: Allocator, reporter: Reporter, 
             try self.resolve_statement(arena, reporter, self.scoped_statements[whileStmt.bodyStmtId]);
         },
     }
+}
+
+fn declare_variable(
+    self: Resolver,
+    reporter: Reporter,
+    varName: []const u8,
+    line: u32,
+) !void {
+    if (self.scopes.items.len < 1) return;
+    const scope = &self.scopes.items[self.scopes.items.len - 1];
+    if (scope.contains(varName)) {
+        try reporter.reportWithContext(line, varName, "Already a variable with this name in this scope.");
+        return Lox.Error.CompileError;
+    }
+    try scope.put(varName, false);
+}
+
+fn define_variable(self: Resolver, varName: []const u8) !void {
+    if (self.scopes.items.len < 1) return;
+    const scope = &self.scopes.items[self.scopes.items.len - 1];
+    try scope.put(varName, true);
 }
 
 fn resolve_expression(self: *Resolver, reporter: Reporter, exprId: ExprId) !void {

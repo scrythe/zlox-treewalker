@@ -94,11 +94,13 @@ pub fn run(self: *Lox, io: Io, gpa: Allocator, stdout_writer: *std.Io.Writer, re
 
     // try scanner.printTokens(stdout_writer);
 
-    try parser.parse(gpa, reporter);
-
-    if (hasScanError) {
-        return;
-    }
+    var hasParseError = false;
+    parser.parse(gpa, reporter) catch |err| {
+        if (err != Error.CompileError) {
+            return err;
+        }
+        hasParseError = true;
+    };
 
     const prettyPrinter = PrettyPrinter.init(
         parser.expressions.items,
@@ -122,6 +124,10 @@ pub fn run(self: *Lox, io: Io, gpa: Allocator, stdout_writer: *std.Io.Writer, re
         parser.parameters_list.items,
     );
     const var_expr_distance_map = try resolver.resolve_program_statements(arena, reporter);
+
+    if (hasScanError or hasParseError) {
+        return;
+    }
 
     var interpreter = try Interpreter.init(
         &self.global_environment,

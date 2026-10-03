@@ -135,7 +135,7 @@ fn parseFunction(self: *Parser, gpa: Allocator, reporter: Reporter, global_state
 
     const funName = try self.getLexemeText(function_name_token, left_paren_token);
 
-    const funDeclStmtValue = Statements.FunDeclStmt{ .funName = funName, .parameters_start = parameters_start, .parameters_end_exclusive = parameters_end, .funBlockStmtId = funBlockStmtId };
+    const funDeclStmtValue = Statements.FunDeclStmt{ .funName = funName, .parameters_start = parameters_start, .parameters_end_exclusive = parameters_end, .funBlockStmtId = funBlockStmtId, .line = function_name_token.line };
     const funDeclStmt = Statement{ .FunDeclStmt = funDeclStmtValue };
 
     funDeclStmtRef.* = funDeclStmt;
@@ -161,7 +161,7 @@ fn parseVarDecl(self: *Parser, gpa: Allocator, reporter: Reporter, global_statem
             break :blk try self.addExpression(gpa, literalExpr);
         };
 
-    const varDeclStmtValue = Statements.VarDeclStmt{ .varName = varName, .valueExprId = initializerExprId };
+    const varDeclStmtValue = Statements.VarDeclStmt{ .varName = varName, .valueExprId = initializerExprId, .line = token.line };
     const varDeclStmt = Statement{ .VarDeclStmt = varDeclStmtValue };
     const varDecltStmtId = try self.addStatement(gpa, varDeclStmt, global_statement);
 
@@ -399,11 +399,12 @@ fn parseBlockStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_stat
 
 /// returnStmt -> "return" expression ";"
 fn parseReturnStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!StmtId {
+    const token = self.tokens[self.current];
     const exprId = try self.parseExpression(gpa, reporter);
     const semicolonToken = self.tokens[self.current];
     try self.checkTokenTypeAndConsumeOnNoError(reporter, TokenType.Semicolon, "Expect ';' after return value.", semicolonToken);
 
-    const returnStmtValue = Statements.ReturnStmt{ .exprId = exprId };
+    const returnStmtValue = Statements.ReturnStmt{ .exprId = exprId, .line = token.line };
     const returnStmt = Statement{ .ReturnStmt = returnStmtValue };
     return self.addStatement(gpa, returnStmt, global_statement);
 }
