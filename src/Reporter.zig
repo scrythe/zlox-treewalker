@@ -27,6 +27,11 @@ pub fn reportRuntimeError(self: Reporter, errorMessage: []const u8, line: u32) s
     try self.stderr_writer.flush();
 }
 
+pub fn reportRuntimeErrorUndefinedProperty(self: Reporter, property_name: []const u8, line: u32) std.Io.Writer.Error!void {
+    try self.stderr_writer.print("Undefined property '{s}'\n[line {d}]\n", .{ property_name, line });
+    try self.stderr_writer.flush();
+}
+
 pub fn reportRuntimeErrorUnequalFunctionParametersAndArity(self: Reporter, arity: u32, paremeters_len: u32, line: u32) std.Io.Writer.Error!void {
     try self.stderr_writer.print("Expected {d} arguments but got {d}.\n[line {d}]\n", .{ arity, paremeters_len, line });
     try self.stderr_writer.flush();

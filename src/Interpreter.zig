@@ -20,6 +20,7 @@ parameters_list: []const []const u8,
 environment: *Environment,
 global_environment: *Environment,
 var_expr_distance_map: Resolver.VarExprDistanceMap,
+class_instances_fields: std.ArrayList(std.StringHashMap(LiteralValue)),
 
 const Interpreter = @This();
 
@@ -43,6 +44,7 @@ pub fn init(
         .environment = global_environment,
         .global_environment = global_environment,
         .var_expr_distance_map = var_expr_depth_map,
+        .class_instances_fields = .empty,
     };
 }
 
@@ -77,6 +79,7 @@ pub fn execute(self: *Interpreter, io: Io, global_arena: Allocator, arena: Alloc
                 .Number => |number| try interpreterPrinter.print("{d}\n", .{number}),
                 .String => |string| try interpreterPrinter.print("\"{s}\"\n", .{string}),
                 .Function => |function| try interpreterPrinter.print("{s}\n", .{function.string}),
+                .ClassInstance => |class_instance| try interpreterPrinter.print("{s} instance\n", .{class_instance.name}), // TODO: maybe change if class instance holds ref to class?
             }
             try interpreterPrinter.flush();
         },
@@ -111,6 +114,30 @@ pub fn execute(self: *Interpreter, io: Io, global_arena: Allocator, arena: Alloc
             } };
             try self.environment.define(arena, funDeclStmt.funName, func);
             // unreachable;
+        },
+        .ClassDeclStmt => |classDeclStmt| {
+            const class = LiteralValue{
+                .Function = .{
+                    .arity = 0,
+                    .parameters_start = 0,
+                    .parameters_end_exclusive = 0,
+                    .callable = .{
+                        .ClassFunction = .{
+                            .class_name = classDeclStmt.className,
+                            .constructor = struct {
+                                fn call(self_function: *Expressions.Function, fields_index: u32) LiteralValue {
+                                    return LiteralValue{ .ClassInstance = .{
+                                        .name = self_function.callable.ClassFunction.class_name,
+                                        .fields_index = fields_index,
+                                    } };
+                                }
+                            }.call,
+                        },
+                    },
+                    .string = try std.fmt.allocPrint(arena, "{s}", .{classDeclStmt.className}),
+                },
+            };
+            try self.environment.define(arena, classDeclStmt.className, class);
         },
         .BlockStmt => |blockStmt| {
             // const stmtsInBlock = self.scoped_statements[blockStmt.start..blockStmt.endExclusive];
@@ -344,9 +371,41 @@ pub fn evaluate(self: *Interpreter, io: Io, arena: Allocator, interpreterPrinter
                         .NativeFunction => |nativeFunction| {
                             return nativeFunction(calleeObj, io, eval_args);
                         },
+                        .ClassFunction => |classFunction| {
+                            const class_fields = std.StringHashMap(LiteralValue).init(arena);
+                            const fields_index = self.class_instances_fields.items.len;
+                            try self.class_instances_fields.append(arena, class_fields);
+                            return classFunction.constructor(calleeObj, @truncate(fields_index));
+                        },
                     }
                 }
             }
+        },
+        .GetExpr => |getExpr| {
+            const instanceExpr = try self.evaluate(io, arena, interpreterPrinter, reporter, getExpr.instanceExprId);
+            if (instanceExpr != .ClassInstance) {
+                try reporter.reportRuntimeError("Only instances have properties.", getExpr.line);
+                return Error.RuntimeError;
+            }
+            const class_instance_fields = self.class_instances_fields.items[instanceExpr.ClassInstance.fields_index];
+            return class_instance_fields.get(getExpr.property_name) orelse {
+                try reporter.reportRuntimeErrorUndefinedProperty(getExpr.property_name, getExpr.line);
+                return Error.RuntimeError;
+            };
+        },
+        .SetExpr => |setExpr| {
+            const instanceExpr = try self.evaluate(io, arena, interpreterPrinter, reporter, setExpr.instanceExprId);
+            if (instanceExpr != .ClassInstance) {
+                try reporter.reportRuntimeError("Only instances have fields.", setExpr.line);
+                return Error.RuntimeError;
+            }
+            const class_instance_fields = &self.class_instances_fields.items[instanceExpr.ClassInstance.fields_index];
+
+            const valueExpr = try self.evaluate(io, arena, interpreterPrinter, reporter, setExpr.valueExprId);
+
+            try class_instance_fields.put(setExpr.property_name, valueExpr);
+
+            return valueExpr;
         },
     };
 }
@@ -367,6 +426,7 @@ fn equals(left: LiteralValue, right: LiteralValue) bool {
         .None => return left.None == right.None,
         // TODO:
         .Function => unreachable,
+        .ClassInstance => unreachable,
     }
     unreachable;
 }

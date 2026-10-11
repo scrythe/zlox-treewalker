@@ -154,6 +154,10 @@ pub fn resolve_statement(self: *Resolver, arena: Allocator, reporter: Reporter, 
 
             try self.define_variable(funDeclStmt.funName);
         },
+        .ClassDeclStmt => |classDeclStmt| {
+            try self.declare_variable(reporter, classDeclStmt.className, classDeclStmt.line);
+            try self.define_variable(classDeclStmt.className);
+        },
         .ExpressionStmt => |exprStmt| {
             try self.resolve_expression(reporter, exprStmt.exprId);
         },
@@ -228,6 +232,13 @@ fn resolve_expression(self: *Resolver, reporter: Reporter, exprId: ExprId) !void
             for (self.arguments_list[callExpr.argListStart..callExpr.argListExclusiveEnd]) |argument| {
                 try self.resolve_expression(reporter, argument);
             }
+        },
+        .GetExpr => |getExpr| {
+            try self.resolve_expression(reporter, getExpr.instanceExprId);
+        },
+        .SetExpr => |setExpr| {
+            try self.resolve_expression(reporter, setExpr.instanceExprId);
+            try self.resolve_expression(reporter, setExpr.valueExprId);
         },
         .GroupingExpr => |groupingExpr| {
             try self.resolve_expression(reporter, groupingExpr.exprId);

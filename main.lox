@@ -1,3 +1,9 @@
-fun bad() {
-  var a = "first";
+class bla {
+  ad() {
+    var a = "first";
+  }
 }
+
+var a = bla();
+print a.ad = 5;
+print a.ad;

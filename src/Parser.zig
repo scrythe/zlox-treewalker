@@ -72,17 +72,25 @@ pub fn parse(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!void 
     if (hasError) return ParseError.CompileError;
 }
 
-/// declaration -> funDecl | varDecl | statement
+/// declaration -> funDecl | varDecl | classDecl | statement
 fn parseDeclaration(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!void {
     const tokenType = self.tokens[self.current].tokenType;
-    if (tokenType == .Fun) {
-        self.current += 1;
-        _ = try self.parseFunction(gpa, reporter, global_statement);
-    } else if (tokenType == .Var) {
-        self.current += 1;
-        _ = try self.parseVarDecl(gpa, reporter, global_statement);
-    } else {
-        _ = try self.parseStatement(gpa, reporter, global_statement);
+    switch (tokenType) {
+        .Fun => {
+            self.current += 1;
+            _ = try self.parseFunction(gpa, reporter, global_statement);
+        },
+        .Var => {
+            self.current += 1;
+            _ = try self.parseVarDecl(gpa, reporter, global_statement);
+        },
+        .Class => {
+            self.current += 1;
+            _ = try self.parseClassDecl(gpa, reporter, global_statement);
+        },
+        else => {
+            _ = try self.parseStatement(gpa, reporter, global_statement);
+        },
     }
 }
 
@@ -203,6 +211,39 @@ fn parseStatement(self: *Parser, gpa: Allocator, reporter: Reporter, global_stat
         },
         else => return try self.parseExprStmt(gpa, reporter, global_statement),
     }
+}
+
+// classDecl -> "class" Identifier "{" function* "}"
+fn parseClassDecl(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!StmtId {
+    const class_name_token = self.tokens[self.current];
+    try self.checkTokenTypeAndConsumeOnNoError(reporter, .Identifier, "Expect class name.", class_name_token);
+
+    const left_brace_token = self.tokens[self.current];
+    try self.checkTokenTypeAndConsumeOnNoError(reporter, .LeftBrace, "Expect '{' before class body.", left_brace_token);
+
+    var classStmtId: StmtId = undefined;
+    const classStmtRef = if (global_statement) blk: {
+        classStmtId = @intCast(self.program_statements.items.len);
+        break :blk try self.program_statements.addOne(gpa);
+    } else blk: {
+        classStmtId = @intCast(self.scoped_statements.items.len);
+        break :blk try self.scoped_statements.addOne(gpa);
+    };
+
+    var token = self.tokens[self.current];
+    while (token.tokenType != .RightBrace and self.current < self.tokens.len) {
+        _ = try self.parseFunction(gpa, reporter, false);
+        token = self.tokens[self.current];
+    }
+
+    const right_brace_token = self.tokens[self.current];
+    try self.checkTokenTypeAndConsumeOnNoError(reporter, .RightBrace, "Expect '{' after class body.", right_brace_token);
+
+    const class_name = try self.getLexemeText(class_name_token, left_brace_token);
+
+    const classStmtValue = Statements.ClassDeclStmt{ .className = class_name, .line = class_name_token.line };
+    classStmtRef.* = Statement{ .ClassDeclStmt = classStmtValue };
+    return classStmtId;
 }
 
 fn parseIfStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!StmtId {
@@ -414,7 +455,7 @@ fn parseExpression(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError
     return self.parseAssignment(gpa, reporter);
 }
 
-/// assignment -> IDENTIFIER '=' assignment
+/// assignment -> (call ".")? IDENTIFIER '=' assignment
 ///            | logic_or
 fn parseAssignment(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
     const equalityExprId = try self.parseLogicOr(gpa, reporter);
@@ -424,7 +465,24 @@ fn parseAssignment(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError
     const valueExprId = try self.parseAssignment(gpa, reporter);
 
     const equalityExpr = self.expressions.items[equalityExprId];
-    if (equalityExpr != .VariableExpr) {
+    if (equalityExpr == .VariableExpr) {
+        const varName = equalityExpr.VariableExpr.varName;
+        const assignmentExpr = Expression{ .AssignmentExpr = .{
+            .varName = varName,
+            .valueExprId = valueExprId,
+            .line = token.line,
+        } };
+        return self.addExpression(gpa, assignmentExpr);
+    } else if (equalityExpr == .GetExpr) {
+        const property_name = equalityExpr.GetExpr.property_name;
+        const assignmentExpr = Expression{ .SetExpr = .{
+            .instanceExprId = equalityExpr.GetExpr.instanceExprId,
+            .property_name = property_name,
+            .valueExprId = valueExprId,
+            .line = token.line,
+        } };
+        return self.addExpression(gpa, assignmentExpr);
+    } else {
         if (self.current + 1 >= self.tokens.len) {
             try reporter.reportWithContextAtEnd(token.line, "Invalid assignment targt.");
             return ParseError.CompileError;
@@ -434,14 +492,6 @@ fn parseAssignment(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError
             return ParseError.CompileError;
         }
     }
-
-    const varName = equalityExpr.VariableExpr.varName;
-    const assignmentExpr = Expression{ .AssignmentExpr = .{
-        .varName = varName,
-        .valueExprId = valueExprId,
-        .line = token.line,
-    } };
-    return self.addExpression(gpa, assignmentExpr);
 }
 
 /// logic_or -> logic_and ( "or" logic_and )*
@@ -551,41 +601,54 @@ fn parseUnary(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!Expr
         const totalUnaryExpr = Expression{ .UnaryExpr = totalUnaryExprValue };
         return self.addExpression(gpa, totalUnaryExpr);
     }
-    return self.parseCall(gpa, reporter);
+    return self.parseCallOrGetExpr(gpa, reporter);
 }
 
-// call -> primary ( "(" arguments? ")" )*
-fn parseCall(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
-    var calleeExprId = try self.parsePrimary(gpa, reporter);
-    var calleeExprLine: u32 = @intCast(self.tokens[self.current].line);
-    var leftParenToken = self.tokens[self.current];
-    while (leftParenToken.tokenType == .LeftParen) {
+// call -> primary ( "(" arguments? ")" | "." Identifier )*
+fn parseCallOrGetExpr(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!ExprId {
+    var calleeOrGetExprId = try self.parsePrimary(gpa, reporter);
+    var calleeOrGetExprLine: u32 = @intCast(self.tokens[self.current].line);
+    var leftParenOrDotToken = self.tokens[self.current];
+    while (leftParenOrDotToken.tokenType == .LeftParen or leftParenOrDotToken.tokenType == .Dot) {
         self.current += 1;
 
-        const argListStart: ExprId = @intCast(self.arguments_list.items.len);
-        if (self.tokens[self.current].tokenType != .RightParen) {
-            while (true) {
-                const argExprId = try self.parseExpression(gpa, reporter);
-                try self.arguments_list.append(gpa, argExprId);
+        if (leftParenOrDotToken.tokenType == .LeftParen) {
+            const argListStart: ExprId = @intCast(self.arguments_list.items.len);
+            if (self.tokens[self.current].tokenType != .RightParen) {
+                while (true) {
+                    const argExprId = try self.parseExpression(gpa, reporter);
+                    try self.arguments_list.append(gpa, argExprId);
 
-                if (self.tokens[self.current].tokenType != .Comma) break;
+                    if (self.tokens[self.current].tokenType != .Comma) break;
 
-                self.current += 1;
+                    self.current += 1;
+                }
             }
+            const argListrEnd: ExprId = @intCast(self.arguments_list.items.len);
+            const callExprValue = Expressions.CallExpr{ .calleeExprId = calleeOrGetExprId, .argListStart = argListStart, .argListExclusiveEnd = argListrEnd, .line = calleeOrGetExprLine };
+            const callExpr = Expression{ .CallExpr = callExprValue };
+            calleeOrGetExprId = try self.addExpression(gpa, callExpr);
+            calleeOrGetExprLine = @intCast(self.tokens[self.current].line);
+
+            const rightParenToken = self.tokens[self.current];
+            try self.checkTokenTypeAndConsumeOnNoError(reporter, .RightParen, "Expect ')' after arguments.", rightParenToken);
+        } else {
+            const property_token = self.tokens[self.current];
+            try self.checkTokenTypeAndConsumeOnNoError(reporter, .Identifier, "Expect property name after '.'.", property_token);
+
+            const nextToken = self.tokens[self.current];
+            const property_name = try self.getLexemeText(property_token, nextToken);
+
+            const getExprValue = Expressions.GetExpr{ .instanceExprId = calleeOrGetExprId, .property_name = property_name, .line = calleeOrGetExprLine };
+            const getExpr = Expression{ .GetExpr = getExprValue };
+            calleeOrGetExprId = try self.addExpression(gpa, getExpr);
+            calleeOrGetExprLine = @intCast(self.tokens[self.current].line);
         }
-        const argListrEnd: ExprId = @intCast(self.arguments_list.items.len);
-        const callExprValue = Expressions.CallExpr{ .calleeExprId = calleeExprId, .argListStart = argListStart, .argListExclusiveEnd = argListrEnd, .line = calleeExprLine };
-        const callExpr = Expression{ .CallExpr = callExprValue };
-        calleeExprId = try self.addExpression(gpa, callExpr);
-        calleeExprLine = @intCast(self.tokens[self.current].line);
 
-        const rightParenToken = self.tokens[self.current];
-        try self.checkTokenTypeAndConsumeOnNoError(reporter, .RightParen, "Expect ')' after arguments.", rightParenToken);
-
-        leftParenToken = self.tokens[self.current];
+        leftParenOrDotToken = self.tokens[self.current];
     }
 
-    return calleeExprId;
+    return calleeOrGetExprId;
 }
 
 /// primary -> Number | String | "true" | "false" | "nil"
@@ -691,7 +754,7 @@ fn equalsTokenTypes(tokenType: TokenType, comptime tokenTypes: []const TokenType
 fn getLexemeText(self: *const Parser, token: Scanner.Token, nextToken: Scanner.Token) ![]const u8 {
     const tokenLexeme = self.code[token.start..nextToken.start];
     var lexemeEnd = tokenLexeme.len;
-    for (tokenLexeme, 0..) |char, i| {
+    for (tokenLexeme, 0..tokenLexeme.len) |char, i| {
         if (char == '\r' or char == '\t' or char == '\n' or char == ' ') {
             lexemeEnd = i;
             break;
@@ -701,6 +764,7 @@ fn getLexemeText(self: *const Parser, token: Scanner.Token, nextToken: Scanner.T
 }
 
 fn checkTokenTypeAndConsumeOnNoError(self: *Parser, reporter: Reporter, comptime tokenType: TokenType, comptime errMessage: []const u8, token: Scanner.Token) ParseError!void {
+    // std.debug.print("{s}\n", .{errMessage});
     if (token.tokenType != tokenType) {
         if (self.current + 1 >= self.tokens.len) {
             try reporter.reportWithContextAtEnd(token.line, errMessage);

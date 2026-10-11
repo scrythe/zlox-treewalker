@@ -6,8 +6,14 @@ const Reporter = @import("Reporter.zig");
 const Environment = @import("Environment.zig");
 const Io = std.Io;
 pub const FunCallable = union(enum) {
+    ClassFunction: struct { class_name: []const u8, constructor: *const fn (*Function, u32) LiteralValue },
     NativeFunction: *const fn (self: *Function, io: Io, arguments: []const LiteralValue) LiteralValue,
     UserFunction: struct { body: u32, environment: *Environment },
+};
+
+pub const ClassInstance = struct {
+    name: []const u8,
+    fields_index: u32,
 };
 
 pub const ExprId = u32;
@@ -17,6 +23,7 @@ pub const LiteralValue = union(enum) {
     Number: f64,
     Bool: bool,
     Function: Function,
+    ClassInstance: ClassInstance,
 };
 
 pub const Function = struct {
@@ -50,6 +57,8 @@ pub const Logical = struct { left: ExprId, operator: Scanner.TokenType, right: E
 pub const VariableExpr = struct { varName: []const u8, line: u32 };
 pub const AssignmentExpr = struct { varName: []const u8, valueExprId: ExprId, line: u32 };
 pub const CallExpr = struct { calleeExprId: ExprId, argListStart: ExprId, argListExclusiveEnd: ExprId, line: u32 };
+pub const GetExpr = struct { instanceExprId: ExprId, property_name: []const u8, line: u32 };
+pub const SetExpr = struct { instanceExprId: ExprId, property_name: []const u8, valueExprId: ExprId, line: u32 };
 
 pub const Expression = union(enum) {
     BinaryExpr: BinaryExpr,
@@ -60,4 +69,6 @@ pub const Expression = union(enum) {
     VariableExpr: VariableExpr,
     AssignmentExpr: AssignmentExpr,
     CallExpr: CallExpr,
+    GetExpr: GetExpr,
+    SetExpr: SetExpr,
 };

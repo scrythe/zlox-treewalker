@@ -130,6 +130,9 @@ pub fn printStatement(self: *const AstPrinter, stdout_writer: *std.Io.Writer, st
             const funBlockStmt = self.scoped_statements[funDeclStmt.funBlockStmtId];
             try self.printStatement(stdout_writer, funBlockStmt, block_depth);
         },
+        .ClassDeclStmt => |classDeclStmt| {
+            try stdout_writer.print("class {s} {{}}", .{classDeclStmt.className});
+        },
         .ReturnStmt => |returnStmt| {
             try stdout_writer.print("return ", .{});
             try self.printExpression(stdout_writer, returnStmt.exprId);
@@ -158,6 +161,7 @@ pub fn printExpression(self: *const AstPrinter, stdout_writer: *std.Io.Writer, e
                 .String => |string| try stdout_writer.print("\"{s}\"", .{string}),
                 // TODO: maybe print function name
                 .Function => try stdout_writer.print("function", .{}),
+                .ClassInstance => unreachable,
             }
         },
         .Logical => |logical| {
@@ -189,6 +193,15 @@ pub fn printExpression(self: *const AstPrinter, stdout_writer: *std.Io.Writer, e
                 }
             }
             try stdout_writer.print(")", .{});
+        },
+        .GetExpr => |getExpr| {
+            try self.printExpression(stdout_writer, getExpr.instanceExprId);
+            try stdout_writer.print(".{s}", .{getExpr.property_name});
+        },
+        .SetExpr => |setExpr| {
+            try self.printExpression(stdout_writer, setExpr.instanceExprId);
+            try stdout_writer.print(".{s} = ", .{setExpr.property_name});
+            try self.printExpression(stdout_writer, setExpr.valueExprId);
         },
     }
 }
