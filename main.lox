@@ -8,3 +8,9 @@ var bla_instance = bla();
 var bla_test = bla_instance.test;
 bla_instance.bread=5;
 bla_test();
+
+fun bla_func() {
+    return this;
+}
+
+bla_func();

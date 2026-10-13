@@ -21,6 +21,11 @@ const FunctionType = enum {
     Method,
 };
 
+const ClassType = enum {
+    None,
+    Class,
+};
+
 const Resolver = @This();
 expressions: []const Expression,
 program_statements: []const Statement,
@@ -30,6 +35,7 @@ parameters_list: []const []const u8,
 scopes: std.ArrayList(ScopeType),
 var_expr_distance_map: VarExprDistanceMap,
 current_function: FunctionType,
+current_class: ClassType,
 
 pub fn init(
     arena: Allocator,
@@ -48,6 +54,7 @@ pub fn init(
         .scopes = .empty,
         .var_expr_distance_map = .init(arena),
         .current_function = .None,
+        .current_class = .None,
     };
 }
 
@@ -107,6 +114,9 @@ pub fn resolve_statement(self: *Resolver, arena: Allocator, reporter: Reporter, 
             try self.resolve_function(arena, reporter, funDeclStmt, .Function);
         },
         .ClassDeclStmt => |classDeclStmt| {
+            const enclosing_class = self.current_class;
+            self.current_class = .Class;
+
             try self.declare_variable(reporter, classDeclStmt.className, classDeclStmt.line);
             try self.define_variable(classDeclStmt.className);
 
@@ -116,10 +126,11 @@ pub fn resolve_statement(self: *Resolver, arena: Allocator, reporter: Reporter, 
             try self.scopes.items[self.scopes.items.len - 1].put("this", true);
 
             for (classDeclStmt.methods) |method| {
-                // FunctionType declaration = FunctionType.Method;
                 const method_function = self.scoped_statements[method].FunDeclStmt;
                 try self.resolve_function(arena, reporter, method_function, .Method);
             }
+
+            self.current_class = enclosing_class;
 
             self.scopes.items.len -= 1;
         },
@@ -216,7 +227,11 @@ fn resolve_expression(self: *Resolver, reporter: Reporter, exprId: ExprId) !void
         .UnaryExpr => |unaryExpr| {
             try self.resolve_expression(reporter, unaryExpr.right);
         },
-        .ThisExpr => {
+        .ThisExpr => |thisExpr| {
+            if (self.current_class != .Class) {
+                try reporter.reportWithContext(thisExpr.line, "this", "Can't use 'this' outside of class.");
+                return Lox.Error.CompileError;
+            }
             try self.resolve_local_var(exprId, "this");
         },
     }
