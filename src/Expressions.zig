@@ -1,12 +1,13 @@
 const Scanner = @import("Scanner.zig");
 const std = @import("std");
 const Interpreter = @import("Interpreter.zig");
+const StmtId = @import("Statements.zig").StmtId;
 const Allocator = std.mem.Allocator;
 const Reporter = @import("Reporter.zig");
 const Environment = @import("Environment.zig");
 const Io = std.Io;
 pub const FunCallable = union(enum) {
-    ClassFunction: struct { class_name: []const u8, constructor: *const fn (*Function, u32) LiteralValue },
+    ClassFunction: struct { class_name: []const u8, methods: std.StringHashMap(LiteralValue) },
     NativeFunction: *const fn (self: *Function, io: Io, arguments: []const LiteralValue) LiteralValue,
     UserFunction: struct { body: u32, environment: *Environment },
 };
@@ -14,6 +15,7 @@ pub const FunCallable = union(enum) {
 pub const ClassInstance = struct {
     name: []const u8,
     fields_index: u32,
+    methods: std.StringHashMap(LiteralValue),
 };
 
 pub const ExprId = u32;

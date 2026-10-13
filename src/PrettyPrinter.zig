@@ -131,7 +131,27 @@ pub fn printStatement(self: *const AstPrinter, stdout_writer: *std.Io.Writer, st
             try self.printStatement(stdout_writer, funBlockStmt, block_depth);
         },
         .ClassDeclStmt => |classDeclStmt| {
-            try stdout_writer.print("class {s} {{}}", .{classDeclStmt.className});
+            try stdout_writer.print("class {s} {{", .{classDeclStmt.className});
+            for (classDeclStmt.methods) |mehthod| {
+                try stdout_writer.print("\n", .{});
+                for (0..block_depth + 1) |_| {
+                    try stdout_writer.print(N_TAB_SPACES, .{});
+                }
+                const method_stmt = self.scoped_statements[mehthod];
+                const funDeclStmt = method_stmt.FunDeclStmt;
+
+                try stdout_writer.print("{s}(", .{funDeclStmt.funName});
+                if ((funDeclStmt.parameters_end_exclusive - funDeclStmt.parameters_start) > 0) {
+                    try stdout_writer.print("{s}", .{self.parameters_list[funDeclStmt.parameters_start]});
+                    for (self.parameters_list[funDeclStmt.parameters_start + 1 .. funDeclStmt.parameters_end_exclusive]) |parameter_name| {
+                        try stdout_writer.print(", {s}", .{parameter_name});
+                    }
+                }
+                try stdout_writer.print(") ", .{});
+                const funBlockStmt = self.scoped_statements[funDeclStmt.funBlockStmtId];
+                try self.printStatement(stdout_writer, funBlockStmt, block_depth + 1);
+            }
+            try stdout_writer.print("\n}}", .{});
         },
         .ReturnStmt => |returnStmt| {
             try stdout_writer.print("return ", .{});

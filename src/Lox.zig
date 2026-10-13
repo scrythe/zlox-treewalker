@@ -94,8 +94,12 @@ pub fn run(self: *Lox, io: Io, gpa: Allocator, stdout_writer: *std.Io.Writer, re
 
     // try scanner.printTokens(stdout_writer);
 
+    var arena_instance = ArenaAllocator.init(gpa);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
+
     var hasParseError = false;
-    parser.parse(gpa, reporter) catch |err| {
+    parser.parse(arena, reporter) catch |err| {
         if (err != Error.CompileError) {
             return err;
         }
@@ -110,10 +114,6 @@ pub fn run(self: *Lox, io: Io, gpa: Allocator, stdout_writer: *std.Io.Writer, re
         parser.parameters_list.items,
     );
     try prettyPrinter.printProgramStatements(stdout_writer);
-
-    var arena_instance = ArenaAllocator.init(gpa);
-    defer arena_instance.deinit();
-    const arena = arena_instance.allocator();
 
     var resolver = Resolver.init(
         arena,

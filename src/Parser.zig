@@ -231,8 +231,10 @@ fn parseClassDecl(self: *Parser, gpa: Allocator, reporter: Reporter, global_stat
     };
 
     var token = self.tokens[self.current];
+    var methods: std.ArrayList(u32) = .empty;
     while (token.tokenType != .RightBrace and self.current < self.tokens.len) {
-        _ = try self.parseFunction(gpa, reporter, false);
+        const method_stmt_id = try self.parseFunction(gpa, reporter, false);
+        try methods.append(gpa, method_stmt_id);
         token = self.tokens[self.current];
     }
 
@@ -241,7 +243,7 @@ fn parseClassDecl(self: *Parser, gpa: Allocator, reporter: Reporter, global_stat
 
     const class_name = try self.getLexemeText(class_name_token, left_brace_token);
 
-    const classStmtValue = Statements.ClassDeclStmt{ .className = class_name, .line = class_name_token.line };
+    const classStmtValue = Statements.ClassDeclStmt{ .className = class_name, .methods = methods.items, .line = class_name_token.line };
     classStmtRef.* = Statement{ .ClassDeclStmt = classStmtValue };
     return classStmtId;
 }

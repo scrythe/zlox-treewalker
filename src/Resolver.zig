@@ -13,9 +13,12 @@ const ScopeType = std.StringHashMap(bool);
 // expressions seems bad too tho
 pub const VarExprDistanceMap = std.AutoHashMap(Expressions.ExprId, u32);
 
+pub const ResolverError = Allocator.Error || Lox.Error || std.Io.Writer.Error;
+
 const FunctionType = enum {
     None,
     Function,
+    Method,
 };
 
 const Resolver = @This();
@@ -55,7 +58,7 @@ pub fn resolve_program_statements(self: *Resolver, arena: Allocator, reporter: R
     return self.var_expr_distance_map;
 }
 
-pub fn resolve_statement(self: *Resolver, arena: Allocator, reporter: Reporter, statement: Statement) !void {
+pub fn resolve_statement(self: *Resolver, arena: Allocator, reporter: Reporter, statement: Statement) ResolverError!void {
     switch (statement) {
         .BlockStmt => |blockStmt| {
             const scope = ScopeType.init(arena);
@@ -101,62 +104,16 @@ pub fn resolve_statement(self: *Resolver, arena: Allocator, reporter: Reporter, 
             try self.define_variable(varDeclStmt.varName);
         },
         .FunDeclStmt => |funDeclStmt| {
-            try self.declare_variable(reporter, funDeclStmt.funName, funDeclStmt.line);
-
-            const enclosing_function = self.current_function;
-            self.current_function = .Function;
-
-            const inner_function_scope = try self.scopes.addOne(arena);
-            inner_function_scope.* = ScopeType.init(arena);
-
-            for (self.parameters_list[funDeclStmt.parameters_start..funDeclStmt.parameters_end_exclusive]) |parameter_name| {
-                // try inner_function_scope.put(funDeclStmt.varName, false);
-                try inner_function_scope.put(parameter_name, true);
-            }
-            const fun_body_stmt = self.scoped_statements[funDeclStmt.funBlockStmtId];
-
-            const bodyStmt = fun_body_stmt.BlockStmt;
-            var indexOfStmtInBlock = bodyStmt.start;
-            while (indexOfStmtInBlock < bodyStmt.endExclusive) {
-                const stmtInBlock = self.scoped_statements[indexOfStmtInBlock];
-                try self.resolve_statement(arena, reporter, stmtInBlock);
-
-                while (true) {
-                    const check_where_to_continue = self.scoped_statements[indexOfStmtInBlock];
-                    switch (check_where_to_continue) {
-                        .IfStmt => |ifStmt| {
-                            if (ifStmt.elseBranchId) |elseBranchId| {
-                                indexOfStmtInBlock = elseBranchId;
-                            } else {
-                                indexOfStmtInBlock = ifStmt.thenBranchId;
-                            }
-                        },
-                        .WhileStmt => |whileStmt| {
-                            indexOfStmtInBlock = whileStmt.bodyStmtId;
-                        },
-                        .FunDeclStmt => |funStmt| {
-                            indexOfStmtInBlock = funStmt.funBlockStmtId;
-                        },
-                        .BlockStmt => |anotherBlockStmt| {
-                            indexOfStmtInBlock = anotherBlockStmt.endExclusive - 1;
-                        },
-                        else => {
-                            break;
-                        },
-                    }
-                }
-                indexOfStmtInBlock += 1;
-            }
-
-            self.scopes.items.len -= 1;
-
-            self.current_function = enclosing_function;
-
-            try self.define_variable(funDeclStmt.funName);
+            try self.resolve_function(arena, reporter, funDeclStmt, .Function);
         },
         .ClassDeclStmt => |classDeclStmt| {
             try self.declare_variable(reporter, classDeclStmt.className, classDeclStmt.line);
             try self.define_variable(classDeclStmt.className);
+            for (classDeclStmt.methods) |method| {
+                // FunctionType declaration = FunctionType.Method;
+                const method_function = self.scoped_statements[method].FunDeclStmt;
+                try self.resolve_function(arena, reporter, method_function, .Method);
+            }
         },
         .ExpressionStmt => |exprStmt| {
             try self.resolve_expression(reporter, exprStmt.exprId);
@@ -252,6 +209,60 @@ fn resolve_expression(self: *Resolver, reporter: Reporter, exprId: ExprId) !void
             try self.resolve_expression(reporter, unaryExpr.right);
         },
     }
+}
+
+fn resolve_function(self: *Resolver, arena: Allocator, reporter: Reporter, funDeclStmt: Statements.FunDeclStmt, function_type: FunctionType) !void {
+    try self.declare_variable(reporter, funDeclStmt.funName, funDeclStmt.line);
+
+    const enclosing_function = self.current_function;
+    self.current_function = function_type;
+
+    const inner_function_scope = try self.scopes.addOne(arena);
+    inner_function_scope.* = ScopeType.init(arena);
+
+    for (self.parameters_list[funDeclStmt.parameters_start..funDeclStmt.parameters_end_exclusive]) |parameter_name| {
+        try inner_function_scope.put(parameter_name, true);
+    }
+    const fun_body_stmt = self.scoped_statements[funDeclStmt.funBlockStmtId];
+
+    const bodyStmt = fun_body_stmt.BlockStmt;
+    var indexOfStmtInBlock = bodyStmt.start;
+    while (indexOfStmtInBlock < bodyStmt.endExclusive) {
+        const stmtInBlock = self.scoped_statements[indexOfStmtInBlock];
+        try self.resolve_statement(arena, reporter, stmtInBlock);
+
+        while (true) {
+            const check_where_to_continue = self.scoped_statements[indexOfStmtInBlock];
+            switch (check_where_to_continue) {
+                .IfStmt => |ifStmt| {
+                    if (ifStmt.elseBranchId) |elseBranchId| {
+                        indexOfStmtInBlock = elseBranchId;
+                    } else {
+                        indexOfStmtInBlock = ifStmt.thenBranchId;
+                    }
+                },
+                .WhileStmt => |whileStmt| {
+                    indexOfStmtInBlock = whileStmt.bodyStmtId;
+                },
+                .FunDeclStmt => |funStmt| {
+                    indexOfStmtInBlock = funStmt.funBlockStmtId;
+                },
+                .BlockStmt => |anotherBlockStmt| {
+                    indexOfStmtInBlock = anotherBlockStmt.endExclusive - 1;
+                },
+                else => {
+                    break;
+                },
+            }
+        }
+        indexOfStmtInBlock += 1;
+    }
+
+    self.scopes.items.len -= 1;
+
+    self.current_function = enclosing_function;
+
+    try self.define_variable(funDeclStmt.funName);
 }
 
 fn resolve_local_var(self: *Resolver, exprId: ExprId, varName: []const u8) !void {

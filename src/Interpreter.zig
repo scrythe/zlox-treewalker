@@ -116,6 +116,22 @@ pub fn execute(self: *Interpreter, io: Io, global_arena: Allocator, arena: Alloc
             // unreachable;
         },
         .ClassDeclStmt => |classDeclStmt| {
+            var methods = std.StringHashMap(LiteralValue).init(arena);
+            for (classDeclStmt.methods) |method| {
+                const method_decl_stmt = self.scoped_statements[method].FunDeclStmt;
+
+                const method_func = LiteralValue{ .Function = .{
+                    .arity = method_decl_stmt.parameters_end_exclusive - method_decl_stmt.parameters_start,
+                    .parameters_start = method_decl_stmt.parameters_start,
+                    .parameters_end_exclusive = method_decl_stmt.parameters_end_exclusive,
+                    .callable = .{ .UserFunction = .{
+                        .body = method_decl_stmt.funBlockStmtId,
+                        .environment = self.environment,
+                    } },
+                    .string = try std.fmt.allocPrint(arena, "<fn {s}>", .{method_decl_stmt.funName}),
+                } };
+                try methods.put(method_decl_stmt.funName, method_func);
+            }
             const class = LiteralValue{
                 .Function = .{
                     .arity = 0,
@@ -124,14 +140,7 @@ pub fn execute(self: *Interpreter, io: Io, global_arena: Allocator, arena: Alloc
                     .callable = .{
                         .ClassFunction = .{
                             .class_name = classDeclStmt.className,
-                            .constructor = struct {
-                                fn call(self_function: *Expressions.Function, fields_index: u32) LiteralValue {
-                                    return LiteralValue{ .ClassInstance = .{
-                                        .name = self_function.callable.ClassFunction.class_name,
-                                        .fields_index = fields_index,
-                                    } };
-                                }
-                            }.call,
+                            .methods = methods,
                         },
                     },
                     .string = try std.fmt.allocPrint(arena, "{s}", .{classDeclStmt.className}),
@@ -375,7 +384,11 @@ pub fn evaluate(self: *Interpreter, io: Io, arena: Allocator, interpreterPrinter
                             const class_fields = std.StringHashMap(LiteralValue).init(arena);
                             const fields_index = self.class_instances_fields.items.len;
                             try self.class_instances_fields.append(arena, class_fields);
-                            return classFunction.constructor(calleeObj, @truncate(fields_index));
+                            return LiteralValue{ .ClassInstance = .{
+                                .name = classFunction.class_name,
+                                .fields_index = @intCast(fields_index),
+                                .methods = classFunction.methods,
+                            } };
                         },
                     }
                 }
@@ -388,10 +401,12 @@ pub fn evaluate(self: *Interpreter, io: Io, arena: Allocator, interpreterPrinter
                 return Error.RuntimeError;
             }
             const class_instance_fields = self.class_instances_fields.items[instanceExpr.ClassInstance.fields_index];
-            return class_instance_fields.get(getExpr.property_name) orelse {
-                try reporter.reportRuntimeErrorUndefinedProperty(getExpr.property_name, getExpr.line);
-                return Error.RuntimeError;
-            };
+            return class_instance_fields.get(getExpr.property_name) orelse
+                instanceExpr.ClassInstance.methods.get(getExpr.property_name) orelse
+                {
+                    try reporter.reportRuntimeErrorUndefinedProperty(getExpr.property_name, getExpr.line);
+                    return Error.RuntimeError;
+                };
         },
         .SetExpr => |setExpr| {
             const instanceExpr = try self.evaluate(io, arena, interpreterPrinter, reporter, setExpr.instanceExprId);

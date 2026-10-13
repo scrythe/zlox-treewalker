@@ -177,7 +177,7 @@ pub fn scanTokens(self: *Scanner, gpa: Allocator, reporter: Reporter) ScanTokens
                 try self.addToken(gpa, TokenType.Number);
             },
             'a'...'z', 'A'...'Z', '_' => {
-                while (!self.isAtEnd() and std.ascii.isAlphanumeric(self.code[self.current])) {
+                while (!self.isAtEnd() and (std.ascii.isAlphanumeric(self.code[self.current]) or self.code[self.current] == '_')) {
                     self.current += 1;
                 }
                 const identifierText = self.code[self.start..self.current];

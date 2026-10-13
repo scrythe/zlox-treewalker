@@ -1,9 +1,8 @@
 class bla {
-  ad() {
-    var a = "first";
+  test_func() {
+    print "test";
   }
 }
 
 var a = bla();
-print a.ad = 5;
-print a.ad;
+a.test_func();
