@@ -1,8 +1,10 @@
 class bla {
-  test_func() {
-    print "test";
+  test() {
+    print this.bread;
   }
 }
 
-var a = bla();
-a.test_func();
+var bla_instance = bla();
+var bla_test = bla_instance.test;
+bla_instance.bread=5;
+bla_test();

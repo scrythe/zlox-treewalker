@@ -401,12 +401,25 @@ pub fn evaluate(self: *Interpreter, io: Io, arena: Allocator, interpreterPrinter
                 return Error.RuntimeError;
             }
             const class_instance_fields = self.class_instances_fields.items[instanceExpr.ClassInstance.fields_index];
-            return class_instance_fields.get(getExpr.property_name) orelse
-                instanceExpr.ClassInstance.methods.get(getExpr.property_name) orelse
-                {
-                    try reporter.reportRuntimeErrorUndefinedProperty(getExpr.property_name, getExpr.line);
-                    return Error.RuntimeError;
-                };
+
+            if (class_instance_fields.get(getExpr.property_name)) |field| {
+                return field;
+            } else if (instanceExpr.ClassInstance.methods.get(getExpr.property_name)) |method_func_bla| {
+                var method_func = method_func_bla;
+                var environment = Environment.init(arena);
+                try environment.define(arena, "this", instanceExpr);
+                environment.enclosing = method_func.Function.callable.UserFunction.environment;
+                method_func.Function.callable.UserFunction.environment = &environment;
+                //
+                //
+                //
+                // const blarg = instanceExpr.ClassInstance.methods.get(getExpr.property_name).?.Function.callable.UserFunction.environment.enclosing.?.values.get("this");
+                // std.debug.print("blarg: {any}\n", .{blarg});
+                return method_func;
+            } else {
+                try reporter.reportRuntimeErrorUndefinedProperty(getExpr.property_name, getExpr.line);
+                return Error.RuntimeError;
+            }
         },
         .SetExpr => |setExpr| {
             const instanceExpr = try self.evaluate(io, arena, interpreterPrinter, reporter, setExpr.instanceExprId);
@@ -421,6 +434,14 @@ pub fn evaluate(self: *Interpreter, io: Io, arena: Allocator, interpreterPrinter
             try class_instance_fields.put(setExpr.property_name, valueExpr);
 
             return valueExpr;
+        },
+        .ThisExpr => |thisExpr| {
+            const optDistance = self.var_expr_distance_map.get(exprId);
+            if (optDistance) |distance| {
+                return try self.environment.get_at("this", distance);
+            } else {
+                return try self.global_environment.get(reporter, "this", thisExpr.line);
+            }
         },
     };
 }

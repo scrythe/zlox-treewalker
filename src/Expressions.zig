@@ -61,6 +61,7 @@ pub const AssignmentExpr = struct { varName: []const u8, valueExprId: ExprId, li
 pub const CallExpr = struct { calleeExprId: ExprId, argListStart: ExprId, argListExclusiveEnd: ExprId, line: u32 };
 pub const GetExpr = struct { instanceExprId: ExprId, property_name: []const u8, line: u32 };
 pub const SetExpr = struct { instanceExprId: ExprId, property_name: []const u8, valueExprId: ExprId, line: u32 };
+pub const ThisExpr = struct { line: u32 };
 
 pub const Expression = union(enum) {
     BinaryExpr: BinaryExpr,
@@ -73,4 +74,5 @@ pub const Expression = union(enum) {
     CallExpr: CallExpr,
     GetExpr: GetExpr,
     SetExpr: SetExpr,
+    ThisExpr: ThisExpr,
 };

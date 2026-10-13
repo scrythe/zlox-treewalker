@@ -223,6 +223,9 @@ pub fn printExpression(self: *const AstPrinter, stdout_writer: *std.Io.Writer, e
             try stdout_writer.print(".{s} = ", .{setExpr.property_name});
             try self.printExpression(stdout_writer, setExpr.valueExprId);
         },
+        .ThisExpr => {
+            try stdout_writer.print("this", .{});
+        },
     }
 }
 

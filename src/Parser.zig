@@ -697,6 +697,9 @@ fn parsePrimary(self: *Parser, gpa: Allocator, reporter: Reporter) ParseError!Ex
             const literalValue: LiteralValue = .{ .String = string };
             break :blk Expression{ .LiteralExpr = .{ .value = literalValue } };
         },
+        .This => blk: {
+            break :blk Expression{ .ThisExpr = .{ .line = token.line } };
+        },
         .LeftParen => blk: {
             const exprId = try self.parseExpression(gpa, reporter);
             const nextToken = self.tokens[self.current];

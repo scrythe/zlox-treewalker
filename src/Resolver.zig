@@ -109,11 +109,19 @@ pub fn resolve_statement(self: *Resolver, arena: Allocator, reporter: Reporter, 
         .ClassDeclStmt => |classDeclStmt| {
             try self.declare_variable(reporter, classDeclStmt.className, classDeclStmt.line);
             try self.define_variable(classDeclStmt.className);
+
+            const scope = ScopeType.init(arena);
+            try self.scopes.append(arena, scope);
+
+            try self.scopes.items[self.scopes.items.len - 1].put("this", true);
+
             for (classDeclStmt.methods) |method| {
                 // FunctionType declaration = FunctionType.Method;
                 const method_function = self.scoped_statements[method].FunDeclStmt;
                 try self.resolve_function(arena, reporter, method_function, .Method);
             }
+
+            self.scopes.items.len -= 1;
         },
         .ExpressionStmt => |exprStmt| {
             try self.resolve_expression(reporter, exprStmt.exprId);
@@ -207,6 +215,9 @@ fn resolve_expression(self: *Resolver, reporter: Reporter, exprId: ExprId) !void
         },
         .UnaryExpr => |unaryExpr| {
             try self.resolve_expression(reporter, unaryExpr.right);
+        },
+        .ThisExpr => {
+            try self.resolve_local_var(exprId, "this");
         },
     }
 }
