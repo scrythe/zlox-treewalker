@@ -1,11 +1,12 @@
 class bla {
   init(numb) {
     this.a=numb;
+    return;
     print this;
   }
 }
-class bla2 {
-}
-print bla(3).a;
-print bla2();
+var b = bla(3);
+print b.a;
+b.init(2);
+print b.a;
 

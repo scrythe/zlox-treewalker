@@ -19,6 +19,7 @@ const FunctionType = enum {
     None,
     Function,
     Method,
+    Initializer,
 };
 
 const ClassType = enum {
@@ -127,7 +128,12 @@ pub fn resolve_statement(self: *Resolver, arena: Allocator, reporter: Reporter, 
 
             for (classDeclStmt.methods) |method| {
                 const method_function = self.scoped_statements[method].FunDeclStmt;
-                try self.resolve_function(arena, reporter, method_function, .Method);
+                const declaration: FunctionType = if (std.mem.eql(u8, method_function.funName, "init"))
+                    .Initializer
+                else
+                    .Method;
+
+                try self.resolve_function(arena, reporter, method_function, declaration);
             }
 
             self.current_class = enclosing_class;
@@ -148,11 +154,22 @@ pub fn resolve_statement(self: *Resolver, arena: Allocator, reporter: Reporter, 
             try self.resolve_expression(reporter, printStmt.exprId);
         },
         .ReturnStmt => |returnStmt| {
-            if (self.current_function == .None) {
-                try reporter.report(returnStmt.line, "Can't return from top-level code.");
-                return Lox.Error.CompileError;
+            switch (self.current_function) {
+                .None => {
+                    try reporter.report(returnStmt.line, "Can't return from top-level code.");
+                    return Lox.Error.CompileError;
+                },
+                .Initializer => {
+                    const expr = self.expressions[returnStmt.exprId];
+                    if (expr != .LiteralExpr or expr.LiteralExpr.value != .None) {
+                        try reporter.report(returnStmt.line, "Can't return a value from an initializer.");
+                        return Lox.Error.CompileError;
+                    }
+                },
+                else => {
+                    try self.resolve_expression(reporter, returnStmt.exprId);
+                },
             }
-            try self.resolve_expression(reporter, returnStmt.exprId);
         },
         .WhileStmt => |whileStmt| {
             try self.resolve_expression(reporter, whileStmt.conditionExprId);

@@ -109,6 +109,7 @@ pub fn execute(self: *Interpreter, io: Io, global_arena: Allocator, arena: Alloc
                 .callable = .{ .UserFunction = .{
                     .body = funDeclStmt.funBlockStmtId,
                     .environment = self.environment,
+                    .is_initializer = false,
                 } },
                 .string = try std.fmt.allocPrint(arena, "<fn {s}>", .{funDeclStmt.funName}),
             } };
@@ -127,6 +128,7 @@ pub fn execute(self: *Interpreter, io: Io, global_arena: Allocator, arena: Alloc
                     .callable = .{ .UserFunction = .{
                         .body = method_decl_stmt.funBlockStmtId,
                         .environment = self.environment,
+                        .is_initializer = std.mem.eql(u8, method_decl_stmt.funName, "init"),
                     } },
                     .string = try std.fmt.allocPrint(arena, "<fn {s}>", .{method_decl_stmt.funName}),
                 } };
@@ -390,7 +392,11 @@ fn call_function(self: *Interpreter, io: Io, arena: Allocator, interpreterPrinte
                     // TODO: global_arena instead of arena?
                     const optReturnValue = try self.execute(io, arena, arena, interpreterPrinter, reporter, stmtInBlock);
                     if (optReturnValue) |somereturnValue| {
-                        returnValue = somereturnValue;
+                        if (userFunction.is_initializer) {
+                            returnValue = try parent_environment.get_at("this", 0);
+                        } else {
+                            returnValue = somereturnValue;
+                        }
                         break;
                     }
 

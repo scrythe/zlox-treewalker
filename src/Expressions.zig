@@ -9,7 +9,11 @@ const Io = std.Io;
 pub const FunCallable = union(enum) {
     ClassFunction: struct { class_name: []const u8, methods: std.StringHashMap(LiteralValue) },
     NativeFunction: *const fn (self: *Function, io: Io, arguments: []const LiteralValue) LiteralValue,
-    UserFunction: struct { body: u32, environment: *Environment },
+    UserFunction: struct {
+        body: u32,
+        environment: *Environment,
+        is_initializer: bool,
+    },
 };
 
 pub const ClassInstance = struct {

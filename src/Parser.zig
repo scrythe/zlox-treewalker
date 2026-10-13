@@ -443,10 +443,16 @@ fn parseBlockStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_stat
 /// returnStmt -> "return" expression ";"
 fn parseReturnStmt(self: *Parser, gpa: Allocator, reporter: Reporter, global_statement: bool) ParseError!StmtId {
     const token = self.tokens[self.current];
-    const exprId = try self.parseExpression(gpa, reporter);
-    const semicolonToken = self.tokens[self.current];
-    try self.checkTokenTypeAndConsumeOnNoError(reporter, TokenType.Semicolon, "Expect ';' after return value.", semicolonToken);
-
+    var exprId: ExprId = undefined;
+    if (token.tokenType != .Semicolon) {
+        exprId = try self.parseExpression(gpa, reporter);
+        const semicolonToken = self.tokens[self.current];
+        try self.checkTokenTypeAndConsumeOnNoError(reporter, TokenType.Semicolon, "Expect ';' after return value.", semicolonToken);
+    } else {
+        self.current += 1;
+        const none_value = Expressions.LiteralExpr{ .value = LiteralValue{ .None = {} } };
+        exprId = try self.addExpression(gpa, .{ .LiteralExpr = none_value });
+    }
     const returnStmtValue = Statements.ReturnStmt{ .exprId = exprId, .line = token.line };
     const returnStmt = Statement{ .ReturnStmt = returnStmtValue };
     return self.addStatement(gpa, returnStmt, global_statement);
