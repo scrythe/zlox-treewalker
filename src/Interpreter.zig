@@ -132,9 +132,14 @@ pub fn execute(self: *Interpreter, io: Io, global_arena: Allocator, arena: Alloc
                 } };
                 try methods.put(method_decl_stmt.funName, method_func);
             }
+            const arity =
+                if (methods.get("init")) |method|
+                    method.Function.arity
+                else
+                    0;
             const class = LiteralValue{
                 .Function = .{
-                    .arity = 0,
+                    .arity = arity,
                     .parameters_start = 0,
                     .parameters_end_exclusive = 0,
                     .callable = .{
@@ -294,104 +299,12 @@ pub fn evaluate(self: *Interpreter, io: Io, arena: Allocator, interpreterPrinter
             return value;
         },
         .CallExpr => |callExpr| {
-            var returnValue: LiteralValue = LiteralValue.None;
-            var callee = try self.evaluate(io, arena, interpreterPrinter, reporter, callExpr.calleeExprId);
+            const callee = try self.evaluate(io, arena, interpreterPrinter, reporter, callExpr.calleeExprId);
             if (callee != .Function) {
                 try reporter.reportRuntimeError("Can only call functions and classes", callExpr.line);
                 return Error.RuntimeError;
             } else {
-                const args_len = callExpr.argListExclusiveEnd - callExpr.argListStart;
-                if (args_len != callee.Function.arity) {
-                    try reporter.reportRuntimeErrorUnequalFunctionParametersAndArity(callee.Function.arity, args_len, callExpr.line);
-                    return Error.RuntimeError;
-                } else {
-                    const eval_args = try arena.alloc(LiteralValue, args_len);
-                    for (self.arguments_list[callExpr.argListStart..callExpr.argListExclusiveEnd], 0..) |callExprId, i| {
-                        const arg_literal_value = try self.evaluate(io, arena, interpreterPrinter, reporter, callExprId);
-                        eval_args[i] = arg_literal_value;
-                    }
-                    const calleeObj = &callee.Function;
-                    switch (callee.Function.callable) {
-                        .UserFunction => |userFunction| {
-                            const parent_environment = userFunction.environment;
-                            const prev_environment = self.environment;
-                            // var iterator = userFunction.environment.values.iterator();
-                            //
-                            // var temp_names: [10][]const u8 = undefined;
-                            // var temp_values: [10]LiteralValue = undefined;
-                            // var entry_i: u32 = 0;
-                            // while (iterator.next()) |entry| : (entry_i += 1) {
-                            //     temp_names[entry_i] = entry.key_ptr.*;
-                            //     temp_values[entry_i] = entry.value_ptr.*;
-                            // }
-
-                            self.environment = try arena.create(Environment);
-                            self.environment.* = Environment.init(arena);
-                            self.environment.enclosing = parent_environment;
-
-                            const parameters = self.parameters_list[calleeObj.parameters_start..calleeObj.parameters_end_exclusive];
-
-                            for (eval_args, 0..) |arg, i| {
-                                const parameter = parameters[i];
-                                try self.environment.define(arena, parameter, arg);
-                            }
-                            const functionBody = self.scoped_statements[userFunction.body].BlockStmt;
-                            var indexOfStmtInBlock = functionBody.start;
-                            while (indexOfStmtInBlock < functionBody.endExclusive) : (indexOfStmtInBlock += 1) {
-                                const stmtInBlock = self.scoped_statements[indexOfStmtInBlock];
-                                // TODO: global_arena instead of arena?
-                                const optReturnValue = try self.execute(io, arena, arena, interpreterPrinter, reporter, stmtInBlock);
-                                if (optReturnValue) |somereturnValue| {
-                                    returnValue = somereturnValue;
-                                    break;
-                                }
-
-                                // could maybe call execute on block but potentially issue regarding return statement
-                                while (true) {
-                                    const check_where_to_continue = self.scoped_statements[indexOfStmtInBlock];
-                                    switch (check_where_to_continue) {
-                                        .IfStmt => |ifStmt| {
-                                            if (ifStmt.elseBranchId) |elseBranchId| {
-                                                indexOfStmtInBlock = elseBranchId;
-                                            } else {
-                                                indexOfStmtInBlock = ifStmt.thenBranchId;
-                                            }
-                                        },
-                                        .WhileStmt => |whileStmt| {
-                                            indexOfStmtInBlock = whileStmt.bodyStmtId;
-                                        },
-                                        .FunDeclStmt => |funStmt| {
-                                            indexOfStmtInBlock = funStmt.funBlockStmtId;
-                                        },
-                                        .BlockStmt => |anotherBlockStmt| {
-                                            indexOfStmtInBlock = anotherBlockStmt.endExclusive - 1;
-                                        },
-                                        else => {
-                                            break;
-                                        },
-                                    }
-                                }
-                            }
-
-                            self.environment = prev_environment;
-
-                            return returnValue;
-                        },
-                        .NativeFunction => |nativeFunction| {
-                            return nativeFunction(calleeObj, io, eval_args);
-                        },
-                        .ClassFunction => |classFunction| {
-                            const class_fields = std.StringHashMap(LiteralValue).init(arena);
-                            const fields_index = self.class_instances_fields.items.len;
-                            try self.class_instances_fields.append(arena, class_fields);
-                            return LiteralValue{ .ClassInstance = .{
-                                .name = classFunction.class_name,
-                                .fields_index = @intCast(fields_index),
-                                .methods = classFunction.methods,
-                            } };
-                        },
-                    }
-                }
+                return try self.call_function(io, arena, interpreterPrinter, reporter, callee, callExpr.argListStart, callExpr.argListExclusiveEnd, callExpr.line);
             }
         },
         .GetExpr => |getExpr| {
@@ -410,11 +323,6 @@ pub fn evaluate(self: *Interpreter, io: Io, arena: Allocator, interpreterPrinter
                 try environment.define(arena, "this", instanceExpr);
                 environment.enclosing = method_func.Function.callable.UserFunction.environment;
                 method_func.Function.callable.UserFunction.environment = &environment;
-                //
-                //
-                //
-                // const blarg = instanceExpr.ClassInstance.methods.get(getExpr.property_name).?.Function.callable.UserFunction.environment.enclosing.?.values.get("this");
-                // std.debug.print("blarg: {any}\n", .{blarg});
                 return method_func;
             } else {
                 try reporter.reportRuntimeErrorUndefinedProperty(getExpr.property_name, getExpr.line);
@@ -444,6 +352,107 @@ pub fn evaluate(self: *Interpreter, io: Io, arena: Allocator, interpreterPrinter
             }
         },
     };
+}
+
+fn call_function(self: *Interpreter, io: Io, arena: Allocator, interpreterPrinter: *std.Io.Writer, reporter: Reporter, callee_bla: LiteralValue, argListStart: u32, argListExclusiveEnd: u32, line: u32) !LiteralValue {
+    var callee = callee_bla;
+    var returnValue: LiteralValue = LiteralValue.None;
+    const args_len = argListExclusiveEnd - argListStart;
+    if (args_len != callee.Function.arity) {
+        try reporter.reportRuntimeErrorUnequalFunctionParametersAndArity(callee.Function.arity, args_len, line);
+        return Error.RuntimeError;
+    } else {
+        const eval_args = try arena.alloc(LiteralValue, args_len);
+        for (self.arguments_list[argListStart..argListExclusiveEnd], 0..) |callExprId, i| {
+            const arg_literal_value = try self.evaluate(io, arena, interpreterPrinter, reporter, callExprId);
+            eval_args[i] = arg_literal_value;
+        }
+        const calleeObj = &callee.Function;
+        switch (callee.Function.callable) {
+            .UserFunction => |userFunction| {
+                const parent_environment = userFunction.environment;
+                const prev_environment = self.environment;
+
+                self.environment = try arena.create(Environment);
+                self.environment.* = Environment.init(arena);
+                self.environment.enclosing = parent_environment;
+
+                const parameters = self.parameters_list[calleeObj.parameters_start..calleeObj.parameters_end_exclusive];
+
+                for (eval_args, 0..) |arg, i| {
+                    const parameter = parameters[i];
+                    try self.environment.define(arena, parameter, arg);
+                }
+                const functionBody = self.scoped_statements[userFunction.body].BlockStmt;
+                var indexOfStmtInBlock = functionBody.start;
+                while (indexOfStmtInBlock < functionBody.endExclusive) : (indexOfStmtInBlock += 1) {
+                    const stmtInBlock = self.scoped_statements[indexOfStmtInBlock];
+                    // TODO: global_arena instead of arena?
+                    const optReturnValue = try self.execute(io, arena, arena, interpreterPrinter, reporter, stmtInBlock);
+                    if (optReturnValue) |somereturnValue| {
+                        returnValue = somereturnValue;
+                        break;
+                    }
+
+                    // could maybe call execute on block but potentially issue regarding return statement
+                    while (true) {
+                        const check_where_to_continue = self.scoped_statements[indexOfStmtInBlock];
+                        switch (check_where_to_continue) {
+                            .IfStmt => |ifStmt| {
+                                if (ifStmt.elseBranchId) |elseBranchId| {
+                                    indexOfStmtInBlock = elseBranchId;
+                                } else {
+                                    indexOfStmtInBlock = ifStmt.thenBranchId;
+                                }
+                            },
+                            .WhileStmt => |whileStmt| {
+                                indexOfStmtInBlock = whileStmt.bodyStmtId;
+                            },
+                            .FunDeclStmt => |funStmt| {
+                                indexOfStmtInBlock = funStmt.funBlockStmtId;
+                            },
+                            .BlockStmt => |anotherBlockStmt| {
+                                indexOfStmtInBlock = anotherBlockStmt.endExclusive - 1;
+                            },
+                            else => {
+                                break;
+                            },
+                        }
+                    }
+                }
+
+                self.environment = prev_environment;
+
+                return returnValue;
+            },
+            .NativeFunction => |nativeFunction| {
+                return nativeFunction(calleeObj, io, eval_args);
+            },
+            .ClassFunction => |classFunction| {
+                const class_fields = std.StringHashMap(LiteralValue).init(arena);
+                const fields_index = self.class_instances_fields.items.len;
+                try self.class_instances_fields.append(arena, class_fields);
+                const class_instance = LiteralValue{ .ClassInstance = .{
+                    .name = classFunction.class_name,
+                    .fields_index = @intCast(fields_index),
+                    .methods = classFunction.methods,
+                } };
+                if (classFunction.methods.get("init")) |init_method_bla| {
+                    var init_method = init_method_bla;
+                    var environment = Environment.init(arena);
+                    try environment.define(arena, "this", class_instance);
+
+                    environment.enclosing = init_method.Function.callable.UserFunction.environment;
+
+                    init_method.Function.callable.UserFunction.environment = &environment;
+
+                    // TODO: handle return
+                    _ = try self.call_function(io, arena, interpreterPrinter, reporter, init_method, argListStart, argListExclusiveEnd, line);
+                }
+                return class_instance;
+            },
+        }
+    }
 }
 
 fn checkNumberOperators(reporter: Reporter, left: LiteralValue, right: LiteralValue, line: u32) Error!void {

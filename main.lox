@@ -1,16 +1,11 @@
 class bla {
-  test() {
-    print this.bread;
+  init(numb) {
+    this.a=numb;
+    print this;
   }
 }
-
-var bla_instance = bla();
-var bla_test = bla_instance.test;
-bla_instance.bread=5;
-bla_test();
-
-fun bla_func() {
-    return this;
+class bla2 {
 }
+print bla(3).a;
+print bla2();
 
-bla_func();
